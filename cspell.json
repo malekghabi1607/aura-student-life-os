@@ -1,0 +1,17 @@
+{
+  "version": "0.2",
+  "language": "en,fr",
+  "words": [
+    "springframework", "financetracker", "projectlombok", "springdoc",
+    "webmvc", "jsonwebtoken", "jjwt", "ooxml", "itextpdf", "bytebuddy",
+    "Dnet", "mvnw", "createdb", "openapi", "mockito", "mockbean",
+    "jwtutil", "jwtfilter", "Malek", "Dskip", "datasource"
+  ],
+  "ignorePaths": [
+    "node_modules",
+    ".git",
+    "target",
+    "*.class",
+    "*.md"
+  ]
+}
