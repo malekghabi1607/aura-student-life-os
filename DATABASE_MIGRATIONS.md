@@ -58,14 +58,15 @@ Les expressions `CHECK` sont normalisées (sans casts ni parenthèses), parce qu
 # Lecture seule pour la base. Écrit backups/aura-<date>.dump et .dump.sha256 (dossier ignoré par git).
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Backup-Database.ps1
 # Autre conteneur / dossier :
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Backup-Database.ps1 -Container <conteneur> -OutputDirectory <dossier>
+$container = 'aura-student-life-os-containers-postgres-1'; $folder = 'backups'   # à adapter
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Backup-Database.ps1 -Container $container -OutputDirectory $folder
 ```
 
 Le script fonctionne ainsi :
-- il lance `pg_dump --format=custom` **dans** le conteneur, via le socket local, sans manipuler de mot de passe ;
-- il contrôle le dump avec `pg_restore --list` ;
-- il le copie avec `docker cp`, sans faire passer de binaire dans le pipeline PowerShell ;
-- il supprime ensuite la copie temporaire du conteneur et écrit le SHA-256.
+1. Il lance `pg_dump --format=custom` **dans** le conteneur, via le socket local, sans manipuler de mot de passe. Il contrôle le dump avec `pg_restore --list` et calcule son SHA-256 dans le conteneur.
+2. Il transfère le fichier par `docker exec … cat`, lu comme un flux d'octets brut, jamais par le pipeline PowerShell qui altère les binaires. Il n'utilise pas `docker cp`, que Docker Desktop refuse sur un conteneur dont la source d'un montage a disparu (c'est le cas du conteneur PostgreSQL créé avant Flyway, qui monte encore `docker-init.sql`).
+3. Il recalcule le SHA-256 sur l'hôte et le compare à celui du conteneur, puis renvoie la copie de l'hôte à `pg_restore --list` pour prouver qu'elle est lisible.
+4. Il écrit `<nom>.dump` et `<nom>.dump.sha256`. Un fichier `.partial` n'est jamais conservé, et le dump temporaire est toujours supprimé du conteneur, même en cas d'erreur.
 
 Le dump contient des données personnelles. Il faut le conserver hors du dépôt et hors des partages publics.
 
@@ -79,7 +80,8 @@ Test de restauration sur une base temporaire (recommandé après chaque sauvegar
 docker run -d --rm --name aura-restore-check --tmpfs /var/lib/postgresql/data `
   -e POSTGRES_USER=aura -e POSTGRES_DB=aura_student_life -e POSTGRES_HOST_AUTH_METHOD=trust postgres:16-alpine
 docker exec aura-restore-check sh -c 'until pg_isready -U aura -d aura_student_life -q; do sleep 1; done'
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Restore-Database.ps1 -Container aura-restore-check -DumpFile backups/<fichier>.dump
+$dump = Get-ChildItem backups/*.dump | Sort-Object Name | Select-Object -Last 1   # ou un fichier précis
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Restore-Database.ps1 -Container aura-restore-check -DumpFile $dump.FullName
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Test-DatabaseBaseline.ps1 -Container aura-restore-check
 docker stop aura-restore-check   # conteneur et données temporaires supprimés (--rm, tmpfs)
 ```
@@ -100,25 +102,183 @@ Le volume `aura-student-life-os-containers_postgres_data` a été créé avant F
 
 Tant que l'adoption n'est pas faite, une image backend construite avec Flyway **refusera de démarrer** sur ce volume, sans rien modifier. Il ne faut donc pas reconstruire ni recréer le backend de la stack avant d'avoir suivi cette procédure.
 
-1. **Sauvegarder** : `scripts/Backup-Database.ps1`. Vérifier que le `.dump` et le `.sha256` sont présents.
-2. **Tester la restauration** de cette sauvegarde sur une base temporaire (section précédente). Les nombres de lignes doivent être identiques à ceux de la base source, et le diagnostic doit indiquer `ADOPTABLE`.
-3. **Diagnostiquer la base réelle** : `scripts/Test-DatabaseBaseline.ps1` doit indiquer `ADOPTABLE` (code de sortie 0). En cas de `NOT ADOPTABLE` : **arrêter** et analyser l'écart avec V1.
-4. **Construire** la nouvelle image : `docker compose --env-file .env.docker build backend`.
-5. **Adopter**, avec la variable dans le shell uniquement et jamais dans `.env.docker` :
-   ```powershell
-   $env:FLYWAY_BASELINE_ON_MIGRATE = 'true'
-   docker compose --env-file .env.docker up -d --no-deps --wait --wait-timeout 180 backend
-   Remove-Item Env:FLYWAY_BASELINE_ON_MIGRATE
-   ```
-6. **Vérifier** :
-   - `docker compose --env-file .env.docker logs backend` contient `Schema public matches V1` et `Successfully baselined schema with version: 1` ;
-   - `Test-DatabaseBaseline.ps1` indique `MANAGED (1 BASELINE true)` ;
-   - `scripts/Test-DockerStack.ps1` indique `PASS`.
-7. **Recréer le backend sans le drapeau** : `docker compose --env-file .env.docker up -d --no-deps --wait backend`. Le conteneur est recréé avec `FLYWAY_BASELINE_ON_MIGRATE=false` et les logs indiquent « Schema "public" is up to date ».
+Le conteneur PostgreSQL actuel monte encore `backend/src/main/resources/db/docker-init.sql`, qui a été supprimé du dépôt. Il fonctionne, mais `docker cp` y échoue, et un redémarrage de Docker Desktop pourrait l'empêcher de repartir. La procédure le recrée donc **sans ce montage**, sur **le même volume**. PostgreSQL ne relance pas l'initialisation sur un répertoire de données non vide, et le mot de passe stocké dans la base ne change pas.
 
-**Retour arrière** :
-- si l'étape 5 échoue, rien n'a été écrit : il suffit de redémarrer l'ancienne image ;
-- après la baseline, l'ancienne image (sans Flyway) démarre encore normalement, car Hibernate ignore la table `flyway_schema_history`. C'est vérifié par un test. Cette garantie ne vaut que tant que les migrations V2+ restent rétrocompatibles.
+**Règles absolues pendant toute la procédure** :
+- jamais `docker compose down -v`, `--renew-anon-volumes`, `docker volume rm` ni `prune` ;
+- `FLYWAY_BASELINE_ON_MIGRATE` uniquement dans le shell, jamais dans `.env.docker` ;
+- chaque commande est lancée depuis la racine du dépôt, dans **une seule** session PowerShell, en s'arrêtant à la première erreur.
+
+### 0. Préparer la session
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$compose = @('compose', '--env-file', '.env.docker')
+$pg = 'aura-student-life-os-containers-postgres-1'
+$backend = 'aura-student-life-os-containers-backend-1'
+$volume = 'aura-student-life-os-containers_postgres_data'
+function Assert-Ok([string]$Step) { if ($LASTEXITCODE -ne 0) { throw "ECHEC: $Step. Appliquer l'arrêt immédiat." } }
+# PowerShell 5.1 strips embedded double quotes from native arguments: SQL goes through stdin
+# and mounts are read as JSON, so no argument below contains nested quotes.
+$countsSql = 'SELECT (SELECT count(*) FROM users), (SELECT count(*) FROM categories), (SELECT count(*) FROM transactions), (SELECT count(*) FROM goals), (SELECT count(*) FROM planning_events), (SELECT count(*) FROM study_tasks), (SELECT count(*) FROM fitness_workouts);'
+function Get-Counts {
+    $r = $countsSql | docker exec -i $pg sh -c 'psql -X -q -At -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+    Assert-Ok 'row counts'; return ($r -join '').Trim()
+}
+function Get-VolumeMount {
+    $m = docker inspect $pg --format '{{json .Mounts}}' | ConvertFrom-Json; Assert-Ok 'inspect mounts'
+    return (@($m | Where-Object Type -eq 'volume' | ForEach-Object { "$($_.Name)->$($_.Destination)" }) -join ',')
+}
+function Get-BindMounts {
+    $m = docker inspect $pg --format '{{json .Mounts}}' | ConvertFrom-Json; Assert-Ok 'inspect mounts'
+    return (@($m | Where-Object Type -eq 'bind' | ForEach-Object { $_.Destination }) -join ',')
+}
+```
+
+### 1. Conserver l'image actuelle (retour arrière)
+
+```powershell
+docker tag aura-backend:local aura-backend:pre-flyway; Assert-Ok 'tag pre-flyway'
+docker image inspect aura-backend:pre-flyway --format '{{.Id}}'   # noter l'ID
+```
+
+### 2. Sauvegarder, puis vérifier la restauration
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Backup-Database.ps1; Assert-Ok 'backup'
+$dump = Get-ChildItem backups/*.dump | Sort-Object Name | Select-Object -Last 1
+# Restauration de vérification sur une base jetable (aucun volume : --rm + tmpfs)
+docker run -d --rm --name aura-restore-check --tmpfs /var/lib/postgresql/data `
+  -e POSTGRES_USER=aura -e POSTGRES_DB=aura_student_life -e POSTGRES_HOST_AUTH_METHOD=trust postgres:16-alpine
+docker exec aura-restore-check sh -c 'until pg_isready -h 127.0.0.1 -U aura -d aura_student_life -q; do sleep 1; done'
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Restore-Database.ps1 -Container aura-restore-check -DumpFile $dump.FullName; Assert-Ok 'restore'
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Test-DatabaseBaseline.ps1 -Container aura-restore-check; Assert-Ok 'diagnostic restored'
+docker stop aura-restore-check
+```
+
+Le nombre de lignes affiché par `Restore-Database.ps1` doit être **identique** à celui de la base réelle (ordre : users, categories, transactions, goals, planning_events, study_tasks, fitness_workouts) :
+
+```powershell
+Get-Counts
+```
+
+### 3. Diagnostiquer la base réelle
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Test-DatabaseBaseline.ps1; Assert-Ok 'diagnostic'
+```
+
+Le diagnostic doit afficher `ADOPTABLE`. Sinon, **arrêter là** : aucune étape suivante.
+
+### 4. Relever l'identité du volume et des données (avant)
+
+```powershell
+$volumeBefore = docker volume inspect $volume --format '{{.Name}}|{{.CreatedAt}}|{{.Mountpoint}}'; Assert-Ok 'volume inspect'
+$mountBefore  = Get-VolumeMount
+$countsBefore = Get-Counts
+"$volumeBefore`n$mountBefore`n$countsBefore`nbinds: $(Get-BindMounts)"
+```
+
+`$mountBefore` doit valoir `aura-student-life-os-containers_postgres_data->/var/lib/postgresql/data`.
+
+### 5. Arrêter l'application (fenêtre de maintenance)
+
+```powershell
+docker @compose stop frontend backend; Assert-Ok 'stop frontend backend'
+```
+
+### 6. Recréer PostgreSQL sans l'ancien montage, sur le même volume
+
+```powershell
+docker @compose up -d --no-deps --no-build --force-recreate --wait --wait-timeout 120 postgres; Assert-Ok 'recreate postgres'
+$volumeAfter = docker volume inspect $volume --format '{{.Name}}|{{.CreatedAt}}|{{.Mountpoint}}'
+$mountAfter  = Get-VolumeMount
+$binds       = Get-BindMounts
+$countsAfter = Get-Counts
+if ($volumeAfter -ne $volumeBefore) { throw 'VOLUME DIFFERENT: arrêt immédiat.' }
+if ($mountAfter -ne $mountBefore)   { throw 'MONTAGE DIFFERENT: arrêt immédiat.' }
+if ($binds -match 'docker-entrypoint-initdb') { throw 'Ancien montage docker-init.sql encore présent.' }
+if ($countsAfter -ne $countsBefore) { throw 'DONNEES DIFFERENTES: arrêt immédiat.' }
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Test-DatabaseBaseline.ps1; Assert-Ok 'diagnostic after recreate'
+```
+
+Le volume doit garder le même nom, la même date de création et le même point de montage. Seul `/run/secrets/postgres_password` doit rester en bind mount, et le diagnostic doit toujours afficher `ADOPTABLE`.
+
+### 7. Construire la nouvelle image backend
+
+```powershell
+docker @compose build backend; Assert-Ok 'build backend'
+```
+
+La construction relance les tests. `aura-backend:local` désigne alors l'image Flyway, et `aura-backend:pre-flyway` reste disponible.
+
+### 8. Adopter (un seul démarrage avec le drapeau)
+
+```powershell
+$env:FLYWAY_BASELINE_ON_MIGRATE = 'true'
+try {
+    docker @compose up -d --no-deps --no-build --wait --wait-timeout 180 backend
+    Assert-Ok 'adoption start'
+} finally {
+    Remove-Item Env:FLYWAY_BASELINE_ON_MIGRATE -ErrorAction SilentlyContinue
+}
+if (Test-Path Env:FLYWAY_BASELINE_ON_MIGRATE) { throw 'Drapeau encore présent dans la session.' }
+```
+
+Le bloc `finally` retire la variable même si `docker compose` échoue ou si la session est interrompue par une exception. Les commandes natives ne lèvent pas d'exception en PowerShell 5.1, d'où `Assert-Ok`.
+
+### 9. Vérifier l'adoption
+
+```powershell
+docker @compose logs backend | Select-String 'matches V1|Successfully baselined|up to date|Started FinanceTracker'
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Test-DatabaseBaseline.ps1   # MANAGED: 1 BASELINE true
+$countsAdopted = Get-Counts
+if ($countsAdopted -ne $countsBefore) { throw 'DONNEES DIFFERENTES après adoption: arrêt immédiat.' }
+```
+
+Les logs doivent contenir `Schema public matches V1`, puis `Successfully baselined schema with version: 1`, puis `Schema "public" is up to date`.
+
+### 10. Recréer le backend sans le drapeau, redémarrer le frontend, tester
+
+```powershell
+docker @compose up -d --no-deps --no-build --force-recreate --wait --wait-timeout 180 backend; Assert-Ok 'backend without flag'
+docker inspect $backend --format '{{range .Config.Env}}{{println .}}{{end}}' | Select-String '^FLYWAY_BASELINE_ON_MIGRATE='   # doit afficher =false
+docker @compose up -d --no-deps --no-build --wait frontend; Assert-Ok 'frontend'
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Test-DockerStack.ps1; Assert-Ok 'stack test'
+```
+
+La commande `Select-String` ne montre que la ligne Flyway : les secrets sont montés en fichiers, pas en variables d'environnement.
+
+### Arrêt immédiat en cas d'échec
+
+Dès qu'une commande échoue, qu'un contrôle affiche une différence ou que les logs montrent une erreur :
+
+1. **Ne rien relancer avec le drapeau**, ne pas réessayer « pour voir ».
+2. Retirer le drapeau de la session et arrêter le backend, pour stopper une éventuelle boucle de redémarrage (`restart: unless-stopped`) :
+   ```powershell
+   Remove-Item Env:FLYWAY_BASELINE_ON_MIGRATE -ErrorAction SilentlyContinue
+   docker @compose stop backend frontend
+   ```
+3. Conserver les preuves : `docker @compose logs --no-color backend postgres > adoption-failure.log`. Ce fichier peut contenir des données personnelles : le garder hors du dépôt.
+4. Diagnostiquer en lecture seule : `Test-DatabaseBaseline.ps1`, relever le nombre de lignes, relancer `docker volume inspect $volume`.
+5. Selon le résultat :
+   - le volume et les données sont intacts : appliquer le **retour arrière** ci-dessous ;
+   - les données sont altérées (cas non observé en test) : **ne pas toucher au volume**. Restaurer la sauvegarde de l'étape 2 sur un **nouveau** projet Compose (autre `COMPOSE_PROJECT_NAME`, donc un autre volume), vérifier, puis décider de la bascule.
+
+### Retour arrière vers l'image `aura-backend:pre-flyway`
+
+```powershell
+Remove-Item Env:FLYWAY_BASELINE_ON_MIGRATE -ErrorAction SilentlyContinue
+docker tag aura-backend:pre-flyway aura-backend:local; Assert-Ok 'retag pre-flyway'
+docker @compose up -d --no-deps --no-build --force-recreate --wait --wait-timeout 180 backend; Assert-Ok 'rollback backend'
+docker @compose up -d --no-deps --no-build --wait frontend
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Test-DockerStack.ps1
+```
+
+- **Avant la baseline** (échec aux étapes 6 à 8) : rien n'a été écrit en base. L'ancienne image redémarre telle quelle.
+- **Après la baseline** : l'ancienne image (sans Flyway) démarre normalement, car Hibernate ignore `flyway_schema_history`. C'est vérifié par un test. La table peut rester en place. Cette garantie ne vaut que tant que les migrations V2+ sont rétrocompatibles.
+- Le conteneur PostgreSQL recréé à l'étape 6 n'a pas besoin d'être remis dans son état précédent : il utilise la même image et le même volume, sans le montage obsolète.
+- Pour retenter l'adoption plus tard, il faut **reconstruire** l'image Flyway (`docker @compose build backend`), puisque `aura-backend:local` désigne de nouveau l'ancienne image.
 
 ## Tests réalisés (27/10/2026)
 
@@ -137,3 +297,8 @@ Les tests ont été faits sur des conteneurs `postgres:16-alpine` **temporaires*
 | Restauration d'un dump post-adoption | Historique restauré ; démarrage sans migration |
 | Restauration sur base non vide / dump corrompu | Refusée (code 1), cible inchangée |
 | Ancienne image (sans Flyway) sur base adoptée | Démarre, API OK |
+| `Backup-Database.ps1` sur la stack réelle (montage `docker-init.sql` obsolète) | SHA-256 identique dans le conteneur et sur l'hôte, `pg_restore --list` OK sur la copie de l'hôte, `/tmp` du conteneur vide, base, conteneurs et volume inchangés |
+| Transfert binaire d'un dump de 35 Mo de données aléatoires | SHA-256 identique, contenu restauré identique octet par octet (md5 des 30 000 lignes) |
+| Sauvegarde vers un conteneur inexistant | Échec propre (code 1), aucun fichier laissé |
+| Restauration de la sauvegarde réelle sur une base temporaire | Nombre de lignes, md5 par table et séquences identiques à la source ; schéma égal à V1 ; `ADOPTABLE` |
+| Blocs PowerShell de cette procédure | 16 blocs analysés sans erreur ; étapes 0 et 4 exécutées telles quelles (lecture seule) ; `try/finally` retire bien le drapeau après un échec simulé |
