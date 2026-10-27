@@ -1,8 +1,8 @@
 package com.financetracker.export;
 
-import com.financetracker.entity.Transaction;
+import com.financetracker.dto.TransactionResponse;
 import com.financetracker.enums.TransactionType;
-import com.financetracker.repository.TransactionRepository;
+import com.financetracker.service.TransactionService;
 import com.itextpdf.io.font.constants.StandardFonts;
 import com.itextpdf.kernel.colors.ColorConstants;
 import com.itextpdf.kernel.colors.DeviceRgb;
@@ -29,10 +29,10 @@ import java.util.List;
 @RequiredArgsConstructor
 public class PdfExportService {
 
-    private final TransactionRepository transactionRepository;
+    private final TransactionService transactionService;
 
     public byte[] exportTransactions() throws IOException {
-        List<Transaction> transactions = transactionRepository.findAllByOrderByDateDesc();
+        List<TransactionResponse> transactions = transactionService.findAll();
 
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         PdfWriter writer = new PdfWriter(output);
@@ -66,11 +66,11 @@ public class PdfExportService {
         // Summary
         BigDecimal totalIncome = transactions.stream()
                 .filter(t -> t.getType() == TransactionType.INCOME)
-                .map(Transaction::getAmount)
+                .map(TransactionResponse::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal totalExpense = transactions.stream()
                 .filter(t -> t.getType() == TransactionType.EXPENSE)
-                .map(Transaction::getAmount)
+                .map(TransactionResponse::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         Table summaryTable = new Table(UnitValue.createPercentArray(new float[]{1, 1, 1}))
@@ -98,14 +98,14 @@ public class PdfExportService {
 
         // Table rows
         boolean alternate = false;
-        for (Transaction t : transactions) {
+        for (TransactionResponse t : transactions) {
             DeviceRgb rowBg = alternate ? new DeviceRgb(245, 247, 250) : new DeviceRgb(255, 255, 255);
             DeviceRgb typeColor = t.getType() == TransactionType.INCOME ? incomeColor : expenseColor;
 
             table.addCell(new Cell().add(new Paragraph(String.valueOf(t.getId())).setFont(regular).setFontSize(8)).setBackgroundColor(rowBg));
             table.addCell(new Cell().add(new Paragraph(t.getDate().toString()).setFont(regular).setFontSize(8)).setBackgroundColor(rowBg));
             table.addCell(new Cell().add(new Paragraph(t.getType().name()).setFont(bold).setFontSize(8).setFontColor(typeColor)).setBackgroundColor(rowBg));
-            table.addCell(new Cell().add(new Paragraph(t.getCategory() != null ? t.getCategory().getName() : "—").setFont(regular).setFontSize(8)).setBackgroundColor(rowBg));
+            table.addCell(new Cell().add(new Paragraph(t.getCategoryName() != null ? t.getCategoryName() : "—").setFont(regular).setFontSize(8)).setBackgroundColor(rowBg));
             table.addCell(new Cell().add(new Paragraph(t.getDescription()).setFont(regular).setFontSize(8)).setBackgroundColor(rowBg));
             table.addCell(new Cell().add(new Paragraph(t.getAmount().toString()).setFont(bold).setFontSize(8).setFontColor(typeColor)).setBackgroundColor(rowBg).setTextAlignment(TextAlignment.RIGHT));
 
