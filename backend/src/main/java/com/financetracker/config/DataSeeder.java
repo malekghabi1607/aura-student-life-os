@@ -17,6 +17,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
+@org.springframework.context.annotation.Profile("dev & !prod & !test")
 @Component
 @RequiredArgsConstructor
 @Slf4j
