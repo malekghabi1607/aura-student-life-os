@@ -1,81 +1,76 @@
 package com.financetracker.service;
 
-import lombok.extern.slf4j.Slf4j;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.financetracker.dto.AIChatRequest.Message;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
-
+import org.springframework.web.server.ResponseStatusException;
 import java.util.*;
 
 @Service
-@Slf4j
 public class AIService {
+    static final String SYSTEM_PROMPT = """
+            Tu es Aura, un assistant IA intelligent intégré dans l'app Aura Student Life OS.
+            Tu peux répondre à absolument n'importe quelle question : études, sciences, maths,
+            code, sport, culture, langues, actualités, conseils de vie, recettes, voyages,
+            finances, philosophie, etc.
+            Tu es bienveillant, précis, et tu adaptes ton style selon la question.
+            Tu réponds en français sauf si l'utilisateur parle une autre langue.
+            Ne te limite à aucun domaine — réponds librement à toute question posée.
+            """;
+    private final String apiKey;
+    private final String model;
+    private final RestTemplate restTemplate;
 
-    @Value("${gemini.api-key:}")
-    private String apiKey;
+    public AIService(@Value("${gemini.api-key:}") String apiKey,
+                     @Value("${gemini.model:gemini-2.0-flash}") String model) {
+        this.apiKey = apiKey;
+        if (!model.matches("[a-zA-Z0-9._-]+")) throw new IllegalArgumentException("Invalid Gemini model name");
+        this.model = model;
+        var factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5000);
+        factory.setReadTimeout(30000);
+        this.restTemplate = new RestTemplate(factory);
+    }
 
-    @Value("${gemini.model:gemini-2.0-flash}")
-    private String model;
+    RestTemplate restTemplate() { return restTemplate; }
 
-    private final RestTemplate restTemplate = new RestTemplate();
-
-    public String chat(List<Map<String, String>> messages, String systemPrompt) {
+    public String chat(List<Message> messages) {
         if (apiKey == null || apiKey.isBlank() || "changeme".equals(apiKey)) {
-            return "⚠️ Assistant IA non configuré. Ajoutez votre clé GEMINI_API_KEY dans le fichier .env du backend pour activer l'IA.";
+            return "Assistant IA non configuré. Configurez GEMINI_API_KEY côté serveur pour activer l'IA.";
         }
-
-        String url = "https://generativelanguage.googleapis.com/v1beta/models/" + model
-                + ":generateContent?key=" + apiKey;
-
+        String url = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent";
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-
-        // Build Gemini request format
+        headers.set("x-goog-api-key", apiKey);
         List<Map<String, Object>> contents = new ArrayList<>();
-
-        // System instruction as first user message context
-        for (Map<String, String> msg : messages) {
-            Map<String, Object> content = new HashMap<>();
-            content.put("role", "user".equals(msg.get("role")) ? "user" : "model");
-            content.put("parts", List.of(Map.of("text", msg.get("content"))));
-            contents.add(content);
+        for (Message message : messages) {
+            contents.add(Map.of("role", "user".equals(message.role()) ? "user" : "model",
+                    "parts", List.of(Map.of("text", message.content()))));
         }
-
-        Map<String, Object> body = new HashMap<>();
-        body.put("contents", contents);
-        body.put("systemInstruction", Map.of(
-                "parts", List.of(Map.of("text", systemPrompt))
-        ));
-        body.put("generationConfig", Map.of(
-                "maxOutputTokens", 2048,
-                "temperature", 0.7
-        ));
-
+        Map<String, Object> body = Map.of("contents", contents,
+                "systemInstruction", Map.of("parts", List.of(Map.of("text", SYSTEM_PROMPT))),
+                "generationConfig", Map.of("maxOutputTokens", 2048, "temperature", 0.7));
         try {
-            HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
-            @SuppressWarnings("unchecked")
-            Map<String, Object> response = restTemplate.postForObject(url, request, Map.class);
-            if (response == null) throw new RuntimeException("Réponse vide de Gemini");
-
-            @SuppressWarnings("unchecked")
-            List<Map<String, Object>> candidates = (List<Map<String, Object>>) response.get("candidates");
-            @SuppressWarnings("unchecked")
-            Map<String, Object> content = (Map<String, Object>) candidates.get(0).get("content");
-            @SuppressWarnings("unchecked")
-            List<Map<String, Object>> parts = (List<Map<String, Object>>) content.get("parts");
-            return (String) parts.get(0).get("text");
-
-        } catch (org.springframework.web.client.HttpClientErrorException e) {
-            String errBody = e.getResponseBodyAsString();
-            log.error("Gemini HTTP error {}: {}", e.getStatusCode(), errBody);
-            if (e.getStatusCode().value() == 429) {
-                throw new RuntimeException("Limite de requêtes Gemini atteinte. Réessaie dans quelques secondes.");
+            JsonNode response = restTemplate.postForObject(url, new HttpEntity<>(body, headers), JsonNode.class);
+            JsonNode text = response == null ? null : response.path("candidates").path(0)
+                    .path("content").path("parts").path(0).path("text");
+            if (text == null || !text.isTextual() || text.asText().isBlank()) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Réponse IA indisponible. Réessayez.");
             }
-            throw new RuntimeException("Erreur Gemini : " + e.getStatusCode());
-        } catch (Exception e) {
-            log.error("Gemini error: {}", e.getMessage());
-            throw new RuntimeException("Erreur lors de la communication avec l'IA : " + e.getMessage());
+            return text.asText();
+        } catch (HttpStatusCodeException exception) {
+            if (exception.getStatusCode().value() == 429) {
+                throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Limite du fournisseur IA atteinte. Réessayez plus tard.");
+            }
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Service IA indisponible. Réessayez.");
+        } catch (RestClientException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Service IA indisponible. Réessayez.");
         }
     }
 }
