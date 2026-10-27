@@ -23,6 +23,11 @@
   </properties>
 
   <dependencies>
+    <!-- Container readiness checks: health only, with no exposed details. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
     <!-- Spring Boot Core -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
@@ -105,6 +110,11 @@
     </dependency>
 
     <!-- Tests -->
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
