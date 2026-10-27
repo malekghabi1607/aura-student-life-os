@@ -41,6 +41,8 @@ Depuis `backend/`, copier `.env.example` vers `.env` puis exécuter :
 Seul `dev` importe automatiquement `backend/.env` (format Java properties).
 Le profil conserve la création du compte de démonstration et `ddl-auto: update`.
 Il doit donc être utilisé uniquement avec une base de développement dédiée.
+Flyway y est désactivé par défaut ; `FLYWAY_ENABLED=true` l'active pour tester les
+migrations sur une base de développement vide ou déjà gérée par Flyway.
 Sans `JWT_SECRET`, une clé aléatoire en mémoire est générée au démarrage : les
 sessions deviennent invalides à chaque redémarrage. Aucun secret fixe de secours.
 Les liens de vérification/réinitialisation ne sont plus écrits dans les logs,
@@ -54,9 +56,11 @@ automatiquement dans ce profil.
 
 - Absence de secret JWT ou clé trop courte : échec du démarrage.
 - Aucun `DataSeeder` : ni création ni réactivation automatique du compte de démonstration.
-- `ddl-auto: validate` vérifie le schéma existant sans le modifier. Un schéma
-  absent/incompatible empêche le démarrage ; son évolution nécessitera une procédure
-  de migration séparée. Aucune migration n'est exécutée par cette modification.
+- Flyway applique les migrations de `db/migration` avant que Hibernate ne valide le
+  schéma (`ddl-auto: validate`, jamais de modification par Hibernate). Une base existante
+  sans historique Flyway est refusée tant qu'elle n'a pas été adoptée une fois avec
+  `FLYWAY_BASELINE_ON_MIGRATE=true`, après sauvegarde et diagnostic : voir
+  [DATABASE_MIGRATIONS.md](../DATABASE_MIGRATIONS.md). `clean` est désactivé.
 - Les logs SQL et paramètres JDBC sont désactivés ; les services métier sont au
   niveau WARN pour éviter les traces INFO contenant montants, titres et emails.
 - CORS autorise uniquement `APP_FRONTEND_URL` avec GET, POST, PUT, PATCH, DELETE et OPTIONS.
