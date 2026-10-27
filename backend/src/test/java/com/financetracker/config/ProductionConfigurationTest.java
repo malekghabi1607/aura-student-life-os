@@ -100,4 +100,23 @@ class ProductionConfigurationTest {
                     .containsEntry("com.financetracker.service", "WARN");
         });
     }
+
+    @Test
+    void productionMigratesWithFlywayAndNeverBaselinesImplicitly() {
+        config().withPropertyValues("spring.profiles.active=prod").run(context -> {
+            var env = context.getEnvironment();
+            assertThat(env.getProperty("spring.flyway.enabled")).isEqualTo("true");
+            assertThat(env.getProperty("spring.flyway.locations")).isEqualTo("classpath:db/migration");
+            assertThat(env.getProperty("spring.flyway.baseline-on-migrate")).isEqualTo("false");
+            assertThat(env.getProperty("spring.flyway.baseline-version")).isEqualTo("1");
+            assertThat(env.getProperty("spring.flyway.clean-disabled")).isEqualTo("true");
+            assertThat(env.getProperty("spring.flyway.out-of-order")).isEqualTo("false");
+        });
+    }
+
+    @Test
+    void developmentKeepsFlywayDisabledByDefault() {
+        config().withPropertyValues("spring.profiles.active=dev").run(context ->
+                assertThat(context.getEnvironment().getProperty("spring.flyway.enabled")).isEqualTo("false"));
+    }
 }
