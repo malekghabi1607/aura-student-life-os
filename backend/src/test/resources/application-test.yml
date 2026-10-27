@@ -1,0 +1,18 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:aura-test-${random.uuid};DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate.dialect: org.hibernate.dialect.H2Dialect
+    show-sql: false
+app:
+  frontend-url: http://localhost:5173
+  backend-url: http://localhost:8080
+  mail:
+    from: test@example.invalid
