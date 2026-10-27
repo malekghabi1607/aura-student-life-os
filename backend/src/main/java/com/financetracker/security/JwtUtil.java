@@ -3,8 +3,8 @@ package com.financetracker.security;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import com.financetracker.entity.User;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
@@ -47,9 +47,12 @@ public class JwtUtil {
     @Value("${jwt.expiration:86400000}")
     private long expiration;
 
-    public String generateToken(String email) {
+    public static final String VERSION_CLAIM = "ver";
+
+    public String generateToken(User user) {
         return Jwts.builder()
-                .subject(email)
+                .subject(user.getEmail())
+                .claim(VERSION_CLAIM, user.getTokenVersion())
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + expiration))
                 .signWith(getKey())
@@ -60,13 +63,16 @@ public class JwtUtil {
         return getClaims(token).getSubject();
     }
 
-    public boolean isValid(String token, UserDetails userDetails) {
-        String email = extractEmail(token);
-        return email.equals(userDetails.getUsername()) && !isExpired(token);
-    }
-
-    private boolean isExpired(String token) {
-        return getClaims(token).getExpiration().before(new Date());
+    // Signature and expiry are enforced by the parser (it throws). A token without "ver"
+    // (issued before token versioning) is rejected: its holder must log in again.
+    public boolean isValid(String token, User user) {
+        Claims claims = getClaims(token);
+        Object version = claims.get(VERSION_CLAIM);
+        return user.getEmail().equals(claims.getSubject())
+                && !claims.getExpiration().before(new Date())
+                && version instanceof Number number && number.longValue() == user.getTokenVersion()
+                && user.isEnabled() && user.isAccountNonLocked()
+                && user.isAccountNonExpired() && user.isCredentialsNonExpired();
     }
 
     private Claims getClaims(String token) {
