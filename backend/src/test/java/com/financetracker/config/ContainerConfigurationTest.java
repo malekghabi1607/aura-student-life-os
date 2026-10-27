@@ -1,5 +1,6 @@
 package com.financetracker.config;
 
+import com.financetracker.entity.User;
 import com.financetracker.security.JwtUtil;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -31,7 +32,7 @@ class ContainerConfigurationTest {
                     assertThat(env.getProperty("spring.datasource.password")).isEqualTo("isolated-test-password");
                     assertThat(env.getProperty("gemini.api-key")).isEmpty();
                     assertThat(context.getBean(JwtUtil.class).extractEmail(
-                            context.getBean(JwtUtil.class).generateToken("container@test.invalid")))
+                            context.getBean(JwtUtil.class).generateToken(User.builder().email("container@test.invalid").build())))
                             .isEqualTo("container@test.invalid");
                 });
     }
