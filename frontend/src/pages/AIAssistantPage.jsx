@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Sparkles, Loader, Trash2 } from 'lucide-react';
 import { askAI } from '../services/openai';
+import SafeMessageContent from '../components/SafeMessageContent';
 
 const suggestions = [
   "Explique-moi la relativité",
@@ -41,12 +42,6 @@ export default function AIAssistantPage() {
     }
   }
 
-  function formatContent(text) {
-    return text
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      .replace(/\n/g, '<br/>');
-  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 80px)', gap: 20 }}>
@@ -104,8 +99,9 @@ export default function AIAssistantPage() {
               padding: '12px 16px',
               fontSize: '0.88rem', lineHeight: 1.6, color: 'var(--text-primary)',
             }}
-              dangerouslySetInnerHTML={{ __html: formatContent(msg.content) }}
-            />
+            >
+              <SafeMessageContent text={msg.content} />
+            </div>
           </div>
         ))}
         {loading && (
