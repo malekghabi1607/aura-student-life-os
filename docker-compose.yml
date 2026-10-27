@@ -1,23 +1,116 @@
-version: '3.8'
+# Dedicated project and volume: never attaches to the previous pgdata volume.
+name: aura-student-life-os-containers
 
 services:
-  # ── PostgreSQL Database ──────────────────────────
   postgres:
     image: postgres:16-alpine
-    container_name: finance-tracker-db
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: finance_tracker
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    ports:
-      - "5432:5432"
+      POSTGRES_DB: ${POSTGRES_DB:-aura_student_life}
+      POSTGRES_USER: ${POSTGRES_USER:-aura}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    secrets:
+      - postgres_password
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/src/main/resources/db/docker-init.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+    networks:
+      - database
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      # TCP avoids reporting the temporary initdb server as ready before schema creation.
+      test: ["CMD-SHELL", 'pg_isready -h 127.0.0.1 -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
       interval: 10s
       timeout: 5s
+      start_period: 30s
+      retries: 10
+
+  backend:
+    image: aura-backend:local
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_CONFIG_IMPORT: configtree:/run/secrets/
+      DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-aura_student_life}
+      DATABASE_USERNAME: ${POSTGRES_USER:-aura}
+      APP_FRONTEND_URL: ${APP_FRONTEND_URL:?Set APP_FRONTEND_URL in .env.docker}
+      APP_BACKEND_URL: ${APP_BACKEND_URL:?Set APP_BACKEND_URL in .env.docker}
+      APP_MAIL_FROM: ${APP_MAIL_FROM:?Set APP_MAIL_FROM in .env.docker}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
+      AI_RATE_LIMIT_REQUESTS: ${AI_RATE_LIMIT_REQUESTS:-10}
+      AI_RATE_LIMIT_WINDOW_SECONDS: ${AI_RATE_LIMIT_WINDOW_SECONDS:-60}
+      MANAGEMENT_SERVER_PORT: "8081"
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75.0 -Djava.awt.headless=true
+    secrets:
+      - source: postgres_password
+        target: DATABASE_PASSWORD
+      - source: jwt_secret
+        target: JWT_SECRET
+      - source: gemini_api_key
+        target: GEMINI_API_KEY
+      - source: resend_api_key
+        target: RESEND_API_KEY
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - database
+      - application
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--max-time", "4", "http://127.0.0.1:8081/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
       retries: 5
 
+  frontend:
+    image: aura-frontend:local
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-8088}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - application
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+networks:
+  application:
+  database:
+    internal: true
+
 volumes:
-  pgdata:
+  postgres_data:
+
+secrets:
+  postgres_password:
+    file: ${SECRETS_DIR:-./.secrets}/postgres_password
+  jwt_secret:
+    file: ${SECRETS_DIR:-./.secrets}/jwt_secret
+  gemini_api_key:
+    file: ${SECRETS_DIR:-./.secrets}/gemini_api_key
+  resend_api_key:
+    file: ${SECRETS_DIR:-./.secrets}/resend_api_key
