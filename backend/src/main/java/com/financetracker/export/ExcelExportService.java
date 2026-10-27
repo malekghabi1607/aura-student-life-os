@@ -1,7 +1,7 @@
 package com.financetracker.export;
 
-import com.financetracker.entity.Transaction;
-import com.financetracker.repository.TransactionRepository;
+import com.financetracker.dto.TransactionResponse;
+import com.financetracker.service.TransactionService;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
@@ -19,10 +19,10 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ExcelExportService {
 
-    private final TransactionRepository transactionRepository;
+    private final TransactionService transactionService;
 
     public byte[] exportTransactions() throws IOException {
-        List<Transaction> transactions = transactionRepository.findAllByOrderByDateDesc();
+        List<TransactionResponse> transactions = transactionService.findAll();
 
         try (XSSFWorkbook workbook = new XSSFWorkbook()) {
             Sheet sheet = workbook.createSheet("Transactions");
@@ -57,7 +57,7 @@ public class ExcelExportService {
 
             // Data rows
             int rowNum = 3;
-            for (Transaction t : transactions) {
+            for (TransactionResponse t : transactions) {
                 Row row = sheet.createRow(rowNum++);
 
                 row.createCell(0).setCellValue(t.getId());
@@ -69,7 +69,7 @@ public class ExcelExportService {
                 typeCell.setCellValue(t.getType().name());
                 typeCell.setCellStyle(t.getType().name().equals("INCOME") ? incomeStyle : expenseStyle);
 
-                row.createCell(3).setCellValue(t.getCategory() != null ? t.getCategory().getName() : "—");
+                row.createCell(3).setCellValue(t.getCategoryName() != null ? t.getCategoryName() : "—");
                 row.createCell(4).setCellValue(t.getDescription());
                 row.createCell(5).setCellValue(t.getNotes() != null ? t.getNotes() : "");
 
