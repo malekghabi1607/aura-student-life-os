@@ -5,13 +5,15 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Keep PR feedback fast; do not interrupt a main run between two registry pushes.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   backend:
@@ -126,6 +128,9 @@ jobs:
           tags: aura-${{ matrix.service }}:ci
           push: false
           load: true
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=ci-${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=ci-${{ matrix.service }}
       - name: Check JRE runtime
@@ -134,3 +139,98 @@ jobs:
       - name: Check Nginx configuration
         if: matrix.service == 'frontend'
         run: docker run --rm --network none --entrypoint nginx aura-frontend:ci -t
+      - name: Save the exact validated image
+        if: >-
+          github.repository == 'malekghabi1607/aura-student-life-os' &&
+          github.ref == 'refs/heads/main' &&
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        env:
+          SERVICE: ${{ matrix.service }}
+        run: |
+          image_dir="$RUNNER_TEMP/image-$SERVICE"
+          mkdir -p "$image_dir"
+          docker image inspect --format '{{.Id}}' "aura-$SERVICE:ci" > "$image_dir/image-id.txt"
+          docker save --output "$image_dir/image.tar" "aura-$SERVICE:ci"
+          cd "$image_dir"
+          sha256sum image.tar image-id.txt > SHA256SUMS
+      - name: Preserve validated image for publication
+        if: >-
+          github.repository == 'malekghabi1607/aura-student-life-os' &&
+          github.ref == 'refs/heads/main' &&
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: docker-image-${{ matrix.service }}
+          path: ${{ runner.temp }}/image-${{ matrix.service }}/
+          if-no-files-found: error
+          compression-level: 1
+          retention-days: 1
+
+  publish:
+    name: Publish / ${{ matrix.service }}
+    needs: [backend, frontend, docker]
+    if: >-
+      github.repository == 'malekghabi1607/aura-student-life-os' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [backend, frontend]
+    steps:
+      # Same-run artifacts only; never consume an image built by an untrusted PR.
+      - name: Download validated image from this workflow run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: docker-image-${{ matrix.service }}
+          path: ${{ runner.temp }}/validated-image
+      - name: Verify archive and image identity
+        working-directory: ${{ runner.temp }}/validated-image
+        env:
+          SERVICE: ${{ matrix.service }}
+        run: |
+          sha256sum --check SHA256SUMS
+          expected_id="$(cat image-id.txt)"
+          [[ "$expected_id" =~ ^sha256:[a-f0-9]{64}$ ]]
+          docker load --input image.tar
+          actual_id="$(docker image inspect --format '{{.Id}}' "aura-$SERVICE:ci")"
+          test "$actual_id" = "$expected_id"
+      - name: Resolve lowercase GHCR image name
+        id: image
+        env:
+          SERVICE: ${{ matrix.service }}
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}-$SERVICE" >> "$GITHUB_OUTPUT"
+      - name: Generate latest and full commit SHA tags
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=latest,priority=100
+            type=raw,value=${{ github.sha }}
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tag and publish without rebuilding
+        working-directory: ${{ runner.temp }}/validated-image
+        env:
+          SERVICE: ${{ matrix.service }}
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          expected_id="$(cat image-id.txt)"
+          test "$(docker image inspect --format '{{.Id}}' "aura-$SERVICE:ci")" = "$expected_id"
+          while IFS= read -r tag; do
+            test -n "$tag"
+            docker tag "$expected_id" "$tag"
+            test "$(docker image inspect --format '{{.Id}}' "$tag")" = "$expected_id"
+            docker push "$tag"
+          done <<< "$IMAGE_TAGS"
