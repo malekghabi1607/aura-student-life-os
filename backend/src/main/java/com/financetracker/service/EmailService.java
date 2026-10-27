@@ -37,7 +37,7 @@ public class EmailService {
             mailSender.send(message);
             log.info("Verification email sent to {}", to);
         } catch (Exception e) {
-            log.warn("Email non envoyé (configurez RESEND_API_KEY). Lien de vérification : {}", verifyUrl);
+            log.warn("Verification email could not be sent; check mail configuration");
         }
     }
 
@@ -53,7 +53,7 @@ public class EmailService {
             mailSender.send(message);
             log.info("Password reset email sent to {}", to);
         } catch (Exception e) {
-            log.warn("Email non envoyé. Lien de réinitialisation : {}", resetUrl);
+            log.warn("Password reset email could not be sent; check mail configuration");
         }
     }
 
