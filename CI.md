@@ -1,9 +1,10 @@
 # Intégration continue GitHub Actions
 
 Le workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) se déclenche sur
-les push vers `main` et les pull requests dont la branche cible est `main`, branche
-principale constatée dans le dépôt. Les anciennes exécutions d'une même PR/branche
-sont annulées lorsqu'une nouvelle arrive.
+les push vers `main`, les pull requests dont la branche cible est `main`, ainsi que
+les déclenchements manuels. Les anciennes exécutions d'une même PR sont annulées
+lorsqu'une nouvelle arrive. Les exécutions sur `main` sont sérialisées sans annuler
+celle en cours pour éviter d'interrompre une publication.
 
 ## Jobs et résultats
 
@@ -17,6 +18,12 @@ sont annulées lorsqu'une nouvelle arrive.
    dans des contextes minimaux et assemblés avec la cible `ci-runtime` des Dockerfiles.
    Le JAR et le frontend ne sont ni recompilés ni retestés dans ce job. Les couches
    BuildKit sont mises en cache séparément pour chaque image.
+4. **Publish / backend** et **Publish / frontend** : uniquement dans le dépôt
+   `malekghabi1607/aura-student-life-os`, sur un push `main` ou un lancement manuel
+   sélectionnant `main`, après réussite des quatre contrôles CI. Ces jobs rechargent
+   les archives des images validées, contrôlent leurs identifiants et publient sur
+   GHCR avec `latest` et le SHA Git complet. Aucun rebuild n'est effectué.
+   Sur une PR ou une autre branche, ils sont ignorés. Voir [GHCR.md](GHCR.md).
 
 Le job Docker vérifie aussi que Java peut s'exécuter et que la configuration Nginx
 est valide, sans réseau. Il ne démarre ni l'application complète ni sa base. Le script
@@ -31,7 +38,9 @@ builds locaux/Compose continuent à compiler et tester eux-mêmes les sources.
 3. Ouvrir chaque job, puis l'étape en échec pour consulter ses logs.
 4. Dans **Artifacts**, télécharger `backend-test-reports` pour les rapports Surefire
    (conservation 7 jours). `backend-jar` et `frontend-dist` sont conservés 1 jour et
-   servent au transfert vers le job Docker. Les images ne sont pas publiées.
+   servent au transfert vers le job Docker. Sur les exécutions autorisées à publier,
+   `docker-image-backend` et `docker-image-frontend` conservent les archives validées
+   pendant 1 jour pour les jobs de publication.
 5. Sur une PR, les résultats sont également visibles dans **Checks**.
 
 Si une PR vient d'un fork, GitHub peut demander à un mainteneur d'autoriser son
@@ -42,16 +51,18 @@ sélectionnés après la première exécution, avec les noms affichés dans **Ch
 ## Sécurité et limites
 
 - Le jeton du workflow n'a que `contents: read` ; les identifiants du checkout ne
-  sont pas conservés. Aucun droit d'écriture sur le dépôt, les packages ou OIDC.
+  sont pas conservés. Seul le job `publish` reçoit aussi `packages: write`.
+  Aucun droit d'écriture sur le dépôt ni permission OIDC.
 - Les actions sont épinglées par SHA de commit vérifié auprès de leurs dépôts officiels.
   Les commentaires indiquent leur version majeure pour faciliter les mises à jour.
-- Aucun bloc `secrets`, secret de production, connexion à un registre ou argument
-  de build contenant un identifiant. Les jetons internes nécessaires aux caches et
-  artefacts sont gérés par GitHub Actions.
+- Aucun secret de production ni argument de build contenant un identifiant.
+  Le `GITHUB_TOKEN` éphémère est utilisé uniquement pour la connexion GHCR du job
+  `publish`. Les jetons internes des caches et artefacts sont gérés par GitHub Actions.
 - Les contextes Docker CI contiennent seulement le JAR ou `dist/` et `nginx.conf`.
   Aucun `.env`, répertoire `.secrets`, dépôt Git ou cache de dépendances n'y est copié.
-- `push: false` : les images restent éphémères sur les runners. Aucun déploiement,
-  aucune modification PostgreSQL et aucune infrastructure AWS.
+- `push: false` dans `build-push-action` : les builds ne publient jamais. Après leurs
+  contrôles, les jobs `publish` utilisent `docker push` sur les mêmes images chargées
+  depuis leurs archives. Aucun déploiement, aucune modification PostgreSQL ni AWS.
 - Le workflow utilise `pull_request`, jamais `pull_request_target`, et ne récupère
   pas d'artefact depuis un workflow privilégié distinct.
 - Les caches accélèrent les builds, mais une première exécution devra télécharger
