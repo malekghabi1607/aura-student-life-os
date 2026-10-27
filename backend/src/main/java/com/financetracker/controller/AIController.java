@@ -1,30 +1,28 @@
 package com.financetracker.controller;
 
+import com.financetracker.dto.AIChatRequest;
 import com.financetracker.service.AIService;
+import com.financetracker.service.AIRateLimiter;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
+import org.springframework.web.server.ResponseStatusException;
+import java.security.Principal;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/ai")
 @RequiredArgsConstructor
-@SuppressWarnings("null")
-
-
 public class AIController {
-
     private final AIService aiService;
+    private final AIRateLimiter rateLimiter;
 
     @PostMapping("/chat")
-    public ResponseEntity<Map<String, String>> chat(@RequestBody Map<String, Object> body) {
-        @SuppressWarnings("unchecked")
-        List<Map<String, String>> messages = (List<Map<String, String>>) body.get("messages");
-        String systemPrompt = (String) body.getOrDefault("system", "Tu es un assistant IA. Réponds en français.");
-
-        String reply = aiService.chat(messages, systemPrompt);
-        return ResponseEntity.ok(Map.of("content", reply));
+    public ResponseEntity<Map<String, String>> chat(@Valid @RequestBody AIChatRequest request, Principal principal) {
+        if (principal == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
+        rateLimiter.acquire(principal.getName());
+        return ResponseEntity.ok(Map.of("content", aiService.chat(request.messages())));
     }
 }
