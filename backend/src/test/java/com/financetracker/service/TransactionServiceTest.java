@@ -72,6 +72,67 @@ class TransactionServiceTest {
     }
 
     @Test
+    void createAndUpdate_rejectAnotherUsersCategoryInBothDirections() {
+        User secondUser = new User();
+        secondUser.setId(2L);
+        secondUser.setEmail("second@test.com");
+        when(userRepository.findByEmail(secondUser.getEmail())).thenReturn(Optional.of(secondUser));
+
+        Category secondCategory = Category.builder().id(2L).userId(2L).name("Private").build();
+        List<Category> categories = List.of(category, secondCategory);
+        when(categoryRepository.findByIdAndUserId(anyLong(), anyLong())).thenAnswer(invocation ->
+                categories.stream().filter(c -> c.getId().equals(invocation.getArgument(0))
+                        && c.getUserId().equals(invocation.getArgument(1))).findFirst());
+
+        for (long id = 1; id <= 2; id++) {
+            String email = id == 1 ? USER_EMAIL : secondUser.getEmail();
+            SecurityContextHolder.getContext().setAuthentication(
+                    new UsernamePasswordAuthenticationToken(email, null, List.of()));
+            Transaction owned = Transaction.builder().id(id).userId(id).build();
+            when(transactionRepository.findById(id)).thenReturn(Optional.of(owned));
+            TransactionRequest request = new TransactionRequest();
+            request.setCategoryId(3 - id);
+
+            assertThatThrownBy(() -> transactionService.create(request))
+                    .isInstanceOf(ResourceNotFoundException.class);
+            long transactionId = id;
+            assertThatThrownBy(() -> transactionService.update(transactionId, request))
+                    .isInstanceOf(ResourceNotFoundException.class);
+        }
+        verify(transactionRepository, never()).save(any());
+        verify(categoryRepository, never()).findById(any());
+    }
+
+    @Test
+    void eachUserCanCreateAndUpdateWithTheirOwnCategory() {
+        User secondUser = new User();
+        secondUser.setId(2L);
+        secondUser.setEmail("second@test.com");
+        when(userRepository.findByEmail(secondUser.getEmail())).thenReturn(Optional.of(secondUser));
+        Category secondCategory = Category.builder().id(2L).userId(2L).name("Private").build();
+        when(categoryRepository.findByIdAndUserId(1L, 1L)).thenReturn(Optional.of(category));
+        when(categoryRepository.findByIdAndUserId(2L, 2L)).thenReturn(Optional.of(secondCategory));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        for (long id = 1; id <= 2; id++) {
+            SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                    id == 1 ? USER_EMAIL : secondUser.getEmail(), null, List.of()));
+            TransactionRequest request = new TransactionRequest();
+            request.setDescription("Own transaction");
+            request.setAmount(BigDecimal.TEN);
+            request.setDate(LocalDate.now());
+            request.setType(TransactionType.EXPENSE);
+            request.setCategoryId(id);
+            assertThat(transactionService.create(request).getCategoryId()).isEqualTo(id);
+
+            Transaction owned = Transaction.builder().id(id).userId(id).build();
+            when(transactionRepository.findById(id)).thenReturn(Optional.of(owned));
+            assertThat(transactionService.update(id, request).getCategoryId()).isEqualTo(id);
+        }
+        verify(transactionRepository, times(4)).save(any(Transaction.class));
+    }
+
+    @Test
     void findAll_returnsAllTransactionsMappedToDtos() {
         when(transactionRepository.findByUserIdOrderByDateDesc(USER_ID)).thenReturn(List.of(transaction));
 
@@ -111,7 +172,7 @@ class TransactionServiceTest {
         request.setDate(LocalDate.now());
         request.setCategoryId(1L);
 
-        when(categoryRepository.findById(1L)).thenReturn(Optional.of(category));
+        when(categoryRepository.findByIdAndUserId(1L, USER_ID)).thenReturn(Optional.of(category));
         when(transactionRepository.save(any())).thenReturn(transaction);
 
         TransactionResponse result = transactionService.create(request);
@@ -149,7 +210,7 @@ class TransactionServiceTest {
         request.setDate(LocalDate.now());
         request.setCategoryId(99L);
 
-        when(categoryRepository.findById(99L)).thenReturn(Optional.empty());
+        when(categoryRepository.findByIdAndUserId(99L, USER_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> transactionService.create(request))
                 .isInstanceOf(ResourceNotFoundException.class)
@@ -171,7 +232,7 @@ class TransactionServiceTest {
         request.setCategoryId(1L);
 
         when(transactionRepository.findById(1L)).thenReturn(Optional.of(transaction));
-        when(categoryRepository.findById(1L)).thenReturn(Optional.of(category));
+        when(categoryRepository.findByIdAndUserId(1L, USER_ID)).thenReturn(Optional.of(category));
         when(transactionRepository.save(any())).thenReturn(updated);
 
         TransactionResponse result = transactionService.update(1L, request);
