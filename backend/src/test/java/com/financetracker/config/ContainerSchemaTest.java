@@ -3,6 +3,8 @@ package com.financetracker.config;
 import com.financetracker.entity.User;
 import com.financetracker.repository.UserRepository;
 import com.financetracker.security.JwtUtil;
+import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.MigrationState;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -18,7 +20,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 // Production application context, but the datasource is explicitly a disposable H2
-// database. This never uses the existing PostgreSQL or Docker volumes.
+// database. This never uses the existing PostgreSQL or Docker volumes. The schema is
+// created by the Flyway migrations exactly as on a new PostgreSQL database.
 @ActiveProfiles("prod")
 @AutoConfigureMockMvc
 @SpringBootTest(properties = {
@@ -27,7 +30,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.datasource.driver-class-name=org.h2.Driver",
         "spring.jpa.database-platform=org.hibernate.dialect.PostgreSQLDialect",
         "spring.jpa.hibernate.ddl-auto=validate",
-        "spring.sql.init.mode=always", "spring.sql.init.schema-locations=classpath:db/docker-init.sql",
         "app.frontend-url=http://localhost:8088", "app.backend-url=http://localhost:8088",
         "app.mail.from=test@example.invalid", "gemini.api-key=", "spring.mail.password="
 })
@@ -36,6 +38,7 @@ class ContainerSchemaTest {
     @Autowired private ApplicationContext context;
     @Autowired private UserRepository users;
     @Autowired private JwtUtil jwt;
+    @Autowired private Flyway flyway;
 
     @DynamicPropertySource
     static void secret(DynamicPropertyRegistry registry) {
@@ -47,6 +50,16 @@ class ContainerSchemaTest {
     void productionBootValidatesInitialSchemaWithoutSeeder() {
         assertThat(context.getBeansOfType(DataSeeder.class)).isEmpty();
         assertThat(users.count()).isZero();
+    }
+
+    @Test
+    void newDatabaseIsCreatedByV1WithoutBaseline() {
+        var applied = flyway.info().applied();
+        assertThat(applied).hasSize(1);
+        assertThat(applied[0].getVersion().getVersion()).isEqualTo("1");
+        assertThat(applied[0].getState()).isEqualTo(MigrationState.SUCCESS);
+        assertThat(flyway.info().pending()).isEmpty();
+        assertThat(flyway.getConfiguration().isBaselineOnMigrate()).isFalse();
     }
 
     @Test
