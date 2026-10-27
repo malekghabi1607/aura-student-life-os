@@ -62,7 +62,7 @@ public class TransactionService {
                 .type(request.getType())
                 .date(request.getDate())
                 .notes(request.getNotes())
-                .category(resolveCategory(request.getCategoryId()))
+                .category(resolveCategory(request.getCategoryId(), uid))
                 .userId(uid)
                 .build();
         Transaction saved = transactionRepository.save(transaction);
@@ -78,7 +78,7 @@ public class TransactionService {
         transaction.setType(request.getType());
         transaction.setDate(request.getDate());
         transaction.setNotes(request.getNotes());
-        transaction.setCategory(resolveCategory(request.getCategoryId()));
+        transaction.setCategory(resolveCategory(request.getCategoryId(), transaction.getUserId()));
 
         return TransactionResponse.from(transactionRepository.save(transaction));
     }
@@ -98,9 +98,9 @@ public class TransactionService {
         return t;
     }
 
-    private Category resolveCategory(Long categoryId) {
+    private Category resolveCategory(Long categoryId, Long userId) {
         if (categoryId == null) return null;
-        return categoryRepository.findById(categoryId)
+        return categoryRepository.findByIdAndUserId(categoryId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Category not found with id: " + categoryId));
     }
 
