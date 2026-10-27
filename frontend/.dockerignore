@@ -1,0 +1,13 @@
+**
+!Dockerfile
+!.dockerignore
+!package.json
+!package-lock.json
+!index.html
+!vite.config.js
+!nginx.conf
+!src/
+!src/**
+src/**/.env*
+src/**/*.pem
+src/**/*.key
