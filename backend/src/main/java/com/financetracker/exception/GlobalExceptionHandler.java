@@ -34,7 +34,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleValidation(MethodArgumentNotValidException ex) {
         Map<String, String> errors = new HashMap<>();
         ex.getBindingResult().getAllErrors().forEach(error -> {
-            String field = ((FieldError) error).getField();
+            String field = error instanceof FieldError fieldError ? fieldError.getField() : error.getObjectName();
             String message = error.getDefaultMessage();
             errors.put(field, message);
         });
@@ -56,7 +56,18 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneral(Exception ex) {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ErrorResponse(500, "Internal server error: " + ex.getMessage()));
+                .body(new ErrorResponse(500, "Internal server error"));
+    }
+
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public ResponseEntity<ErrorResponse> handleStatus(org.springframework.web.server.ResponseStatusException ex) {
+        return ResponseEntity.status(ex.getStatusCode()).headers(ex.getHeaders())
+                .body(new ErrorResponse(ex.getStatusCode().value(), ex.getReason()));
+    }
+
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> handleUnreadable(org.springframework.http.converter.HttpMessageNotReadableException ex) {
+        return ResponseEntity.badRequest().body(new ErrorResponse(400, "Invalid JSON request"));
     }
 
     public record ErrorResponse(int status, String message) {
