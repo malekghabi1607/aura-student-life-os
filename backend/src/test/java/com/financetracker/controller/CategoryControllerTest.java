@@ -1,6 +1,12 @@
 package com.financetracker.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.financetracker.config.AppConfig;
+import com.financetracker.config.SecurityConfig;
+import com.financetracker.security.JwtFilter;
+import com.financetracker.security.JwtUtil;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.test.context.support.WithMockUser;
 import com.financetracker.dto.CategoryRequest;
 import com.financetracker.dto.CategoryResponse;
 import com.financetracker.exception.BadRequestException;
@@ -23,10 +29,16 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+@org.springframework.test.context.ActiveProfiles("test")
 @WebMvcTest(CategoryController.class)
-@Import(com.financetracker.exception.GlobalExceptionHandler.class)
+@Import({com.financetracker.exception.GlobalExceptionHandler.class,
+        SecurityConfig.class, AppConfig.class, JwtFilter.class, JwtUtil.class})
+@WithMockUser
 @SuppressWarnings("null")
 class CategoryControllerTest {
+
+    @MockitoBean
+    private UserDetailsService userDetailsService;
 
     @Autowired
     private MockMvc mockMvc;
