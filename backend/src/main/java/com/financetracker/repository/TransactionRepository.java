@@ -39,6 +39,4 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
         ORDER BY month
         """, nativeQuery = true)
     List<Object[]> getMonthlyStatsByUserId(@Param("startDate") LocalDate startDate, @Param("uid") Long userId);
-
-    List<Transaction> findAllByOrderByDateDesc();
 }
