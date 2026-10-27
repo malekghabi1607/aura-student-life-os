@@ -144,6 +144,5 @@ class StatisticsServiceTest {
         when(transactionRepository.sumByUserIdAndTypeAndDateRange(eq(USER_ID), eq(TransactionType.EXPENSE), any(), any()))
                 .thenReturn(monthExpense);
         when(transactionRepository.sumAmountByCategoryAndUserId(eq(USER_ID), any())).thenReturn(List.of());
-        when(transactionRepository.getMonthlyStatsByUserId(any(), eq(USER_ID))).thenReturn(List.of());
     }
 }
