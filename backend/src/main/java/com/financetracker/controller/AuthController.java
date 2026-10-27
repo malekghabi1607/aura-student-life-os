@@ -79,7 +79,7 @@ public class AuthController {
                     .body(new AuthResponse(null, null, "Email ou mot de passe incorrect"));
         }
         User user = userService.findByEmail(request.getEmail());
-        String token = jwtUtil.generateToken(user.getEmail());
+        String token = jwtUtil.generateToken(user);
         return ResponseEntity.ok(new AuthResponse(token, user.getEmail(), user.getName()));
     }
 
