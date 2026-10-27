@@ -12,9 +12,9 @@ services:
       POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
     secrets:
       - postgres_password
+    # No initdb script: the backend creates and evolves the schema with Flyway.
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./backend/src/main/resources/db/docker-init.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
     networks:
       - database
     healthcheck:
@@ -41,6 +41,9 @@ services:
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
       AI_RATE_LIMIT_REQUESTS: ${AI_RATE_LIMIT_REQUESTS:-10}
       AI_RATE_LIMIT_WINDOW_SECONDS: ${AI_RATE_LIMIT_WINDOW_SECONDS:-60}
+      # One-time adoption of a volume created before Flyway, from the shell only, never
+      # from .env.docker. Procedure and checks first: DATABASE_MIGRATIONS.md.
+      FLYWAY_BASELINE_ON_MIGRATE: ${FLYWAY_BASELINE_ON_MIGRATE:-false}
       MANAGEMENT_SERVER_PORT: "8081"
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75.0 -Djava.awt.headless=true
     secrets:
