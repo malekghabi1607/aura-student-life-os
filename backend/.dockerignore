@@ -1,0 +1,13 @@
+# Allow only build inputs: local secrets, caches, jars and .env never enter context.
+**
+!Dockerfile
+!.dockerignore
+!pom.xml
+!mvnw
+!.mvn/
+!.mvn/**
+!src/
+!src/**
+src/**/.env*
+src/**/*.pem
+src/**/*.key
