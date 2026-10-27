@@ -26,5 +26,9 @@ Users/
 .validation-tools/
 backend/.maven-cache/
 .secrets/
+# Database dumps (scripts/Backup-Database.ps1) contain personal data
+backups/
+*.dump
+*.dump.sha256
 !.env.docker.example
 .ci-images/
