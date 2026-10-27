@@ -11,6 +11,10 @@ spring:
     properties:
       hibernate.dialect: org.hibernate.dialect.H2Dialect
     show-sql: false
+  # Unit/slice tests build the H2 schema from the entities; migrations are covered by
+  # ContainerSchemaTest (prod profile) and the PostgreSQL procedure in DATABASE_MIGRATIONS.md.
+  flyway:
+    enabled: false
 app:
   frontend-url: http://localhost:5173
   backend-url: http://localhost:8080
