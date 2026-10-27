@@ -1,6 +1,7 @@
 package com.financetracker.config;
 
 import com.financetracker.repository.*;
+import com.financetracker.entity.User;
 import com.financetracker.security.JwtUtil;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -49,7 +50,7 @@ class ProductionConfigurationTest {
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     var jwt = context.getBean(JwtUtil.class);
-                    assertThat(jwt.extractEmail(jwt.generateToken("test@example.invalid"))).isEqualTo("test@example.invalid");
+                    assertThat(jwt.extractEmail(jwt.generateToken(User.builder().email("test@example.invalid").build()))).isEqualTo("test@example.invalid");
                 });
     }
 
@@ -59,7 +60,7 @@ class ProductionConfigurationTest {
         var runner = config().withUserConfiguration(JwtUtil.class)
                 .withPropertyValues("spring.profiles.active=" + profile, "jwt.secret=");
         runner.run(first -> {
-            String token = first.getBean(JwtUtil.class).generateToken("test@example.invalid");
+            String token = first.getBean(JwtUtil.class).generateToken(User.builder().email("test@example.invalid").build());
             runner.run(second -> assertThatThrownBy(() -> second.getBean(JwtUtil.class).extractEmail(token))
                     .isInstanceOf(io.jsonwebtoken.security.SignatureException.class));
         });
