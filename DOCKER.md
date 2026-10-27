@@ -89,12 +89,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/Test-DockerSta
 Ouvrir `http://localhost:8088`. Aucun compte de démonstration n'est créé. Inscription
 et vérification nécessitent une configuration d'email fonctionnelle.
 
-L'image PostgreSQL exécute `backend/src/main/resources/db/docker-init.sql` uniquement
-sur un **nouveau volume vide**. Ce fichier initialise les sept tables sans créer
-de compte. Il ne contient aucune suppression ni modification de données existantes.
-Il ne sera pas rejoué à chaque démarrage ; ce n'est pas un mécanisme de migration.
-Le backend vérifie ensuite le schéma avec Hibernate. Les changements de schéma futurs
-nécessiteront une procédure de migration séparée.
+PostgreSQL ne reçoit plus de script d'initialisation. Le backend crée et fait évoluer
+le schéma avec **Flyway** au démarrage (`db/migration`, V1 = les sept tables, sans compte),
+puis Hibernate le valide. Sur un nouveau volume vide, rien d'autre n'est à faire.
+
+**Volume créé avant Flyway** : le backend refuse de démarrer, sans rien écrire, tant que
+le volume n'a pas été adopté une fois. Ne pas reconstruire ni recréer le backend de la
+stack existante avant d'avoir suivi [DATABASE_MIGRATIONS.md](DATABASE_MIGRATIONS.md)
+(sauvegarde, test de restauration, diagnostic en lecture seule, adoption ponctuelle).
 
 PostgreSQL doit être healthy avant le backend, puis le backend avant le frontend.
 Le contrôle backend utilise `/actuator/health/readiness` sur le port interne 8081
