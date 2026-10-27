@@ -38,6 +38,10 @@ public class User implements UserDetails {
     @Column
     private LocalDateTime resetTokenExpiry;
 
+    // Must equal the "ver" claim of a JWT; incrementing it revokes every token issued before.
+    @Column(name = "token_version", nullable = false)
+    private int tokenVersion = 0;
+
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createdAt;
@@ -85,7 +89,12 @@ public class User implements UserDetails {
     public String getName()                       { return name; }
     public void setName(String name)              { this.name = name; }
     public void setPassword(String password)      { this.password = password; }
-    public void setEnabled(boolean enabled)       { this.enabled = enabled; }
+    public void setEnabled(boolean enabled) {
+        if (this.enabled && !enabled) tokenVersion++;   // deactivation revokes existing JWTs
+        this.enabled = enabled;
+    }
+    public int getTokenVersion()                  { return tokenVersion; }
+    public void revokeTokens()                    { tokenVersion++; }
     public String getVerificationToken()          { return verificationToken; }
     public void setVerificationToken(String t)    { this.verificationToken = t; }
     public String getResetToken()                 { return resetToken; }
