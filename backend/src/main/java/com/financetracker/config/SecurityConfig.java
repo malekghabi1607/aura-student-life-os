@@ -27,6 +27,9 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SecurityConfig {
 
+    @org.springframework.beans.factory.annotation.Value("${app.frontend-url}")
+    private String frontendUrl;
+
     private final JwtFilter jwtFilter;
     private final UserDetailsService userDetailsService;
     private final PasswordEncoder passwordEncoder;
@@ -44,24 +47,40 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/actuator/health/readiness", "/actuator/health/liveness").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/api-docs/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(new com.financetracker.security.AIRequestSizeFilter(), JwtFilter.class)
                 .build();
     }
 
     @Bean
     CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of("http://localhost:5173", "http://localhost:5174", "http://localhost:3000"));
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        config.setAllowedOrigins(List.of(frontendOrigin()));
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", config);
         return source;
+    }
+
+    private String frontendOrigin() {
+        try {
+            java.net.URI uri = java.net.URI.create(frontendUrl);
+            if (!("https".equals(uri.getScheme()) || "http".equals(uri.getScheme()))
+                    || uri.getHost() == null || uri.getUserInfo() != null || uri.getQuery() != null
+                    || uri.getFragment() != null || !(uri.getPath().isEmpty() || "/".equals(uri.getPath()))) {
+                throw new IllegalArgumentException();
+            }
+            return uri.getScheme() + "://" + uri.getRawAuthority();
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException("app.frontend-url must be a single HTTP(S) origin");
+        }
     }
 
     @Bean
