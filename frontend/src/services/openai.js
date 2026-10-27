@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { prepareAIMessages } from '../utils/aiMessages';
 
 const api = axios.create({ baseURL: '/api' });
 
@@ -9,18 +10,13 @@ api.interceptors.request.use(config => {
 });
 
 export async function askAI(messages) {
-  const system = `Tu es Aura, un assistant IA intelligent intégré dans l'app Aura Student Life OS.
-Tu peux répondre à absolument n'importe quelle question : études, sciences, maths, code, sport, culture, langues, actualités, conseils de vie, recettes, voyages, finances, philosophie, etc.
-Tu es bienveillant, précis, et tu adaptes ton style selon la question.
-Tu réponds toujours en français sauf si l'utilisateur parle une autre langue.
-Ne te limite à aucun domaine — réponds librement à toute question posée.`;
-
   try {
-    const { data } = await api.post('/ai/chat', { messages, system });
+    const { data } = await api.post('/ai/chat', { messages: prepareAIMessages(messages) });
     return data.content;
   } catch (err) {
     const status = err.response?.status;
     if (status === 401 || status === 403) throw new Error('Session expirée. Reconnectez-vous.');
+    if ([400, 413, 429, 502].includes(status)) throw new Error(err.response?.data?.message || 'Requête IA refusée. Vérifiez la taille des messages ou réessayez plus tard.');
     if (status === 500) {
       const raw = err.response?.data?.message || '';
       const msg = raw.replace(/^Internal server error:\s*/i, '');
