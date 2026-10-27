@@ -1,0 +1,26 @@
+spring:
+  datasource:
+    url: ${DATABASE_URL}
+    username: ${DATABASE_USERNAME}
+    password: ${DATABASE_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+app:
+  frontend-url: ${APP_FRONTEND_URL}
+  backend-url: ${APP_BACKEND_URL}
+  mail:
+    from: ${APP_MAIL_FROM}
+logging:
+  level:
+    root: INFO
+    "[com.financetracker]": INFO
+    "[com.financetracker.service]": WARN
+    "[org.springframework.security]": WARN
+    "[org.hibernate]": WARN
+    "[org.hibernate.SQL]": "OFF"
+    "[org.hibernate.orm.jdbc.bind]": "OFF"
+    "[org.hibernate.type.descriptor.sql.BasicBinder]": "OFF"
