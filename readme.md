@@ -93,26 +93,26 @@ Variables principales cote backend :
 | `DATABASE_URL` | URL JDBC PostgreSQL |
 | `DATABASE_USERNAME` | Utilisateur PostgreSQL |
 | `DATABASE_PASSWORD` | Mot de passe PostgreSQL |
-| `JWT_SECRET` | Cle secrete JWT, 32 caracteres minimum recommandes |
+| `JWT_SECRET` | Secret JWT aleatoire, obligatoire en production, au moins 32 octets UTF-8 |
 | `GEMINI_API_KEY` | Cle API Gemini pour l'assistant IA |
 | `RESEND_API_KEY` | Cle Resend pour les emails |
 
 ## Demarrage local
 
-Terminal 1, base de donnees :
+Pour executer la stack complete dans des conteneurs isoles, suivre [DOCKER.md](DOCKER.md).
+Le Compose lance maintenant frontend, backend et une nouvelle base dediee ; il ne remplace pas l'ancienne base locale.
 
-```bash
-docker-compose up -d
-```
+Pour le lancement natif ci-dessous, utiliser une base PostgreSQL de developpement existante
+avec les variables `DATABASE_*` correspondantes. Le Compose complet est documente separement.
 
-Terminal 2, backend :
+Terminal 1, backend :
 
 ```bash
 cd backend
-./mvnw spring-boot:run
+./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
-Terminal 3, frontend :
+Terminal 2, frontend :
 
 ```bash
 cd frontend
@@ -139,6 +139,8 @@ Password: demo123
 
 ## Commandes utiles
 
+La CI GitHub Actions (tests, builds et assemblage Docker sans publication) est decrite dans [CI.md](CI.md).
+
 Backend :
 
 ```bash
@@ -160,9 +162,9 @@ npm run preview
 Base de donnees :
 
 ```bash
-docker-compose up -d
-docker-compose down
-docker-compose down -v
+docker compose --env-file .env.docker up -d --wait
+docker compose --env-file .env.docker stop
+docker compose --env-file .env.docker down
 ```
 
 ## API principale
@@ -182,7 +184,10 @@ docker-compose down -v
 
 Les fichiers `.env`, `node_modules`, `dist`, `target` et autres artefacts locaux sont ignores par Git. Les secrets doivent rester dans les fichiers `.env` locaux ou dans les variables d'environnement de la plateforme de deploiement.
 
-Avant un deploiement public, remplacer les valeurs par defaut de developpement, notamment `JWT_SECRET`, `DATABASE_PASSWORD`, `GEMINI_API_KEY` et `RESEND_API_KEY`.
+Le profil par defaut est `prod` : aucune valeur de secours JWT et aucun seeder de demonstration.
+Le profil `dev` doit etre choisi explicitement et reserve a une base de developpement.
+Les variables obligatoires, profils, limites IA et incompatibilites sont decrits dans
+[backend/CONFIGURATION.md](backend/CONFIGURATION.md).
 
 ## Auteur
 
