@@ -33,7 +33,7 @@ public class StatisticsController {
     }
 
     @GetMapping("/export/excel")
-    @Operation(summary = "Export all transactions to Excel (.xlsx)")
+    @Operation(summary = "Export the authenticated user's transactions to Excel (.xlsx)")
     public ResponseEntity<byte[]> exportExcel() throws IOException {
         byte[] data = excelExportService.exportTransactions();
         String filename = "transactions-" + LocalDate.now() + ".xlsx";
@@ -45,7 +45,7 @@ public class StatisticsController {
     }
 
     @GetMapping("/export/pdf")
-    @Operation(summary = "Export all transactions to PDF")
+    @Operation(summary = "Export the authenticated user's transactions to PDF")
     public ResponseEntity<byte[]> exportPdf() throws IOException {
         byte[] data = pdfExportService.exportTransactions();
         String filename = "transactions-" + LocalDate.now() + ".pdf";
