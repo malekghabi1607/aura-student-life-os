@@ -23,3 +23,8 @@ target/
 
 # Local/generated artifacts
 Users/
+.validation-tools/
+backend/.maven-cache/
+.secrets/
+!.env.docker.example
+.ci-images/
