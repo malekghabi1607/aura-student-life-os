@@ -53,11 +53,11 @@ class ContainerSchemaTest {
     }
 
     @Test
-    void newDatabaseIsCreatedByV1WithoutBaseline() {
+    void newDatabaseIsCreatedByMigrationsWithoutBaseline() {
         var applied = flyway.info().applied();
-        assertThat(applied).hasSize(1);
-        assertThat(applied[0].getVersion().getVersion()).isEqualTo("1");
-        assertThat(applied[0].getState()).isEqualTo(MigrationState.SUCCESS);
+        assertThat(applied).hasSize(2);
+        assertThat(applied).extracting(m -> m.getVersion().getVersion()).containsExactly("1", "2");
+        assertThat(applied).allMatch(m -> m.getState() == MigrationState.SUCCESS);
         assertThat(flyway.info().pending()).isEmpty();
         assertThat(flyway.getConfiguration().isBaselineOnMigrate()).isFalse();
     }
@@ -74,7 +74,7 @@ class ContainerSchemaTest {
         User user = users.saveAndFlush(User.builder().name("Container test")
                 .email("container@example.invalid").password("not-a-login-password").enabled(true).build());
         try {
-            mvc.perform(get("/api/categories").header("Authorization", "Bearer " + jwt.generateToken(user.getEmail())))
+            mvc.perform(get("/api/categories").header("Authorization", "Bearer " + jwt.generateToken(user)))
                     .andExpect(status().isOk()).andExpect(content().json("[]"));
         } finally {
             users.delete(user);
