@@ -74,6 +74,7 @@ public class UserService implements UserDetailsService {
         if (user.getResetTokenExpiry() == null || user.getResetTokenExpiry().isBefore(LocalDateTime.now()))
             throw new BadRequestException("Lien de réinitialisation expiré. Refaites la demande.");
         user.setPassword(passwordEncoder.encode(newPassword));
+        user.revokeTokens();   // JWTs issued before the reset stop working
         user.setResetToken(null);
         user.setResetTokenExpiry(null);
         userRepository.save(user);
