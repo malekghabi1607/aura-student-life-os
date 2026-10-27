@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend / Java 17
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Java 17 and Maven cache
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: |
+            backend/pom.xml
+            backend/.mvn/wrapper/maven-wrapper.properties
+      - name: Test and build JAR
+        run: |
+          chmod +x ./mvnw
+          ./mvnw --batch-mode --no-transfer-progress verify
+      - name: Preserve test reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-test-reports
+          path: backend/target/surefire-reports/
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Pass validated JAR to Docker job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-jar
+          path: backend/target/finance-tracker-api-1.0.0.jar
+          if-no-files-found: error
+          retention-days: 1
+
+  frontend:
+    name: Frontend / Node 22
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Node 22 and npm cache
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Frontend tests
+        run: node --test src/components/SafeMessageContent.test.js src/utils/aiMessages.test.js
+      - name: Build static frontend
+        run: npm run build
+      - name: Pass validated frontend to Docker job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  docker:
+    name: Docker / ${{ matrix.service }}
+    needs: [backend, frontend]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: backend
+            artifact: backend-jar
+            artifact-path: .ci-images/backend
+          - service: frontend
+            artifact: frontend-dist
+            artifact-path: .ci-images/frontend/dist
+    steps:
+      - name: Checkout Dockerfiles and Nginx configuration
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Download build from this workflow run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact-path }}
+      - name: Include Nginx configuration
+        if: matrix.service == 'frontend'
+        run: cp frontend/nginx.conf .ci-images/frontend/nginx.conf
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Assemble image without retesting or publishing
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .ci-images/${{ matrix.service }}
+          file: ${{ matrix.service }}/Dockerfile
+          target: ci-runtime
+          tags: aura-${{ matrix.service }}:ci
+          push: false
+          load: true
+          cache-from: type=gha,scope=ci-${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=ci-${{ matrix.service }}
+      - name: Check JRE runtime
+        if: matrix.service == 'backend'
+        run: docker run --rm --network none --entrypoint java aura-backend:ci -version
+      - name: Check Nginx configuration
+        if: matrix.service == 'frontend'
+        run: docker run --rm --network none --entrypoint nginx aura-frontend:ci -t
