@@ -9,6 +9,7 @@ import com.financetracker.entity.User;
 import com.financetracker.exception.BadRequestException;
 import com.financetracker.exception.VerificationTokenExpiredException;
 import com.financetracker.security.JwtUtil;
+import com.financetracker.service.EmailService;
 import com.financetracker.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -37,6 +38,11 @@ public class AuthController {
     private final UserService userService;
     private final JwtUtil jwtUtil;
     private final AuthenticationManager authenticationManager;
+    private final EmailService emailService;
+
+    // Same answer for every address (no account enumeration) when no e-mail can be sent at all.
+    private static final Map<String, String> EMAIL_SERVICE_UNAVAILABLE = Map.of("code", "EMAIL_SERVICE_UNAVAILABLE",
+            "message", "L'envoi d'e-mails n'est pas configuré sur ce serveur. Réessayez plus tard ou contactez l'administrateur.");
 
     @Value("${app.frontend-url}")
     private String frontendUrl;
@@ -45,9 +51,16 @@ public class AuthController {
     @Operation(summary = "Create a new account — sends a verification email")
     public ResponseEntity<Map<String, Object>> register(@Valid @RequestBody RegisterRequest request) {
         var result = userService.register(request.getName(), request.getEmail(), request.getPassword());
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(Map.of("email", result.email(), "emailSent", result.emailSent(), "message", result.emailSent()
-                        ? "Compte créé. Consultez votre e-mail pour activer votre compte."
+        if (result.emailSent()) {
+            return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("email", result.email(), "emailSent", true,
+                    "message", "Compte créé. Consultez votre e-mail pour activer votre compte."));
+        }
+        boolean disabled = emailService.isDeliveryDisabled();
+        return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("email", result.email(), "emailSent", false,
+                "code", disabled ? "EMAIL_SERVICE_UNAVAILABLE" : "EMAIL_DELIVERY_FAILED",
+                "message", disabled
+                        ? "Compte créé, mais l'envoi d'e-mails n'est pas configuré sur ce serveur. "
+                          + "Vous pourrez renvoyer le lien de confirmation dès que le service sera rétabli."
                         : "Compte créé, mais l'e-mail n'a pas pu être envoyé. Réessayez le renvoi dans une minute."));
     }
 
@@ -69,6 +82,7 @@ public class AuthController {
 
     @PostMapping("/resend-verification")
     public ResponseEntity<Map<String, String>> resendVerification(@Valid @RequestBody ForgotPasswordRequest request) {
+        if (emailService.isDeliveryDisabled()) return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(EMAIL_SERVICE_UNAVAILABLE);
         userService.resendVerification(request.getEmail());
         return ResponseEntity.ok(Map.of("message", "Si ce compte attend une validation, un lien pourra vous être envoyé. "
                 + "Vérifiez vos spams. Si aucun message n'arrive, réessayez dans une minute ou contactez l'assistance."));
@@ -110,7 +124,8 @@ public class AuthController {
 
     @PostMapping("/forgot-password")
     @Operation(summary = "Request a password reset email")
-    public ResponseEntity<Void> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+    public ResponseEntity<Map<String, String>> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        if (emailService.isDeliveryDisabled()) return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(EMAIL_SERVICE_UNAVAILABLE);
         userService.initPasswordReset(request.getEmail());
         return ResponseEntity.ok().build();
     }
