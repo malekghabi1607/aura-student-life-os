@@ -33,7 +33,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 // Real controllers, security, BCrypt, repositories and EmailService. Only SMTP is simulated.
 @SpringBootTest(properties = {"logging.level.org.springframework.web=WARN",
         "logging.level.org.springframework.security=WARN", "logging.level.org.hibernate=ERROR",
-        "management.health.mail.enabled=false"})
+        "management.health.mail.enabled=false",
+        // Synthetic placeholder so the real EmailService is "configured"; SMTP itself is mocked.
+        "spring.mail.password=SYNTHETIC-not-a-resend-key"})
 @AutoConfigureMockMvc(print = MockMvcPrint.NONE)
 @ActiveProfiles("test")
 class AuthFlowIntegrationTest {
@@ -235,5 +237,31 @@ class AuthFlowIntegrationTest {
         mvc.perform(post("/api/auth/login").contentType("application/json")
                         .content(json(Map.of("email", email, "password", PASSWORD))))
                 .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCOUNT_DISABLED"));
+    }
+
+    @Test void passwordResetNeverVerifiesAPendingAccount() throws Exception {
+        register();
+        mvc.perform(post("/api/auth/forgot-password").contentType("application/json")
+                        .content(json(Map.of("email", email)))).andExpect(status().isOk());
+        String updated = "Reset-Before-Verification4";
+        mvc.perform(post("/api/auth/reset-password").contentType("application/json")
+                        .content(json(Map.of("token", account().getResetToken(), "password", updated))))
+                .andExpect(status().isOk());
+        assertThat(account().isEnabled()).isFalse();
+        assertThat(account().getVerificationToken()).isNotBlank();
+        mvc.perform(post("/api/auth/login").contentType("application/json")
+                        .content(json(Map.of("email", email, "password", updated))))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("EMAIL_NOT_VERIFIED"));
+        verifyAccount();
+        login(updated);
+    }
+
+    @Test void transientSmtpFailureAtRegistrationIsExplained() throws Exception {
+        doThrow(new MailSendException("Synthetic SMTP failure")).when(smtp).send(any(MimeMessage.class));
+        mvc.perform(post("/api/auth/register").contentType("application/json")
+                        .content(json(Map.of("name", "Test account", "email", email, "password", PASSWORD))))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.emailSent").value(false))
+                .andExpect(jsonPath("$.code").value("EMAIL_DELIVERY_FAILED"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("n'a pas pu être envoyé")));
     }
 }
