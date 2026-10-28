@@ -31,6 +31,12 @@ test('authentication pages render actionable recovery states', async t => {
       assert.match(html, /value="synthetic@auth.invalid"/);
       assert.match(html, /Renvoyer/);
     });
+    await t.test('an unconfigured e-mail service shows the server explanation', async () => {
+      const html = await render('CheckEmailPage', { pathname: '/check-email', state: { email: 'synthetic@auth.invalid',
+        emailSent: false, message: "Compte créé, mais l'envoi d'e-mails n'est pas configuré sur ce serveur." } });
+      assert.match(html, /pas configuré sur ce serveur/);
+      assert.match(html, /Renvoyer/);
+    });
     await t.test('reset page without token offers a fresh request instead of a password form', async () => {
       const html = await render('ResetPasswordPage', '/reset-password');
       assert.match(html, /Lien invalide/);
