@@ -7,6 +7,7 @@ import com.financetracker.dto.RegisterRequest;
 import com.financetracker.dto.ResetPasswordRequest;
 import com.financetracker.entity.User;
 import com.financetracker.exception.BadRequestException;
+import com.financetracker.exception.VerificationTokenExpiredException;
 import com.financetracker.security.JwtUtil;
 import com.financetracker.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -24,6 +25,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.net.URI;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -41,39 +43,56 @@ public class AuthController {
 
     @PostMapping("/register")
     @Operation(summary = "Create a new account — sends a verification email")
-    public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
-        userService.register(request.getName(), request.getEmail(), request.getPassword());
+    public ResponseEntity<Map<String, Object>> register(@Valid @RequestBody RegisterRequest request) {
+        var result = userService.register(request.getName(), request.getEmail(), request.getPassword());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(new AuthResponse(null, request.getEmail(),
-                        "Compte créé ! Vérifiez votre email pour activer votre compte."));
+                .body(Map.of("email", result.email(), "emailSent", result.emailSent(), "message", result.emailSent()
+                        ? "Compte créé. Consultez votre e-mail pour activer votre compte."
+                        : "Compte créé, mais l'e-mail n'a pas pu être envoyé. Réessayez le renvoi dans une minute."));
     }
 
     @GetMapping("/verify")
     @Operation(summary = "Verify email via token link")
-    public ResponseEntity<Void> verify(@RequestParam String token) {
+    public ResponseEntity<Void> verify(@RequestParam(defaultValue = "") String token) {
         try {
             userService.verify(token);
             return ResponseEntity.status(HttpStatus.FOUND)
-                    .location(URI.create(frontendUrl + "/login?verified=true"))
+                    .location(URI.create(frontendUrl.replaceAll("/+$", "") + "/login?verified=true"))
                     .build();
         } catch (BadRequestException e) {
             return ResponseEntity.status(HttpStatus.FOUND)
-                    .location(URI.create(frontendUrl + "/login?error=invalid-token"))
+                    .location(URI.create(frontendUrl.replaceAll("/+$", "") + "/login?error="
+                            + (e instanceof VerificationTokenExpiredException ? "expired-token" : "invalid-token")))
                     .build();
         }
     }
 
+    @PostMapping("/resend-verification")
+    public ResponseEntity<Map<String, String>> resendVerification(@Valid @RequestBody ForgotPasswordRequest request) {
+        userService.resendVerification(request.getEmail());
+        return ResponseEntity.ok(Map.of("message", "Si ce compte attend une validation, un lien pourra vous être envoyé. "
+                + "Vérifiez vos spams. Si aucun message n'arrive, réessayez dans une minute ou contactez l'assistance."));
+    }
+
     @PostMapping("/login")
     @Operation(summary = "Login and get a JWT token")
-    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
+    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request) {
         try {
             authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
             );
         } catch (DisabledException e) {
+            // Spring checks disabled status before the password. Do not disclose it to an unauthenticated guess.
+            if (!userService.matchesPassword(request.getEmail(), request.getPassword())) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(new AuthResponse(null, null, "Email ou mot de passe incorrect"));
+            }
+            User pending = userService.findByEmail(request.getEmail());
+            boolean unverified = pending.getVerificationToken() != null;
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(new AuthResponse(null, null,
-                            "Compte non vérifié. Vérifiez votre email avant de vous connecter."));
+                    .body(Map.of("code", unverified ? "EMAIL_NOT_VERIFIED" : "ACCOUNT_DISABLED",
+                            "message", unverified ? "Compte non vérifié. Vérifiez votre email avant de vous connecter."
+                                    : "Ce compte est désactivé. Contactez l'assistance."));
         } catch (BadCredentialsException e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(new AuthResponse(null, null, "Email ou mot de passe incorrect"));
@@ -81,6 +100,12 @@ public class AuthController {
         User user = userService.findByEmail(request.getEmail());
         String token = jwtUtil.generateToken(user);
         return ResponseEntity.ok(new AuthResponse(token, user.getEmail(), user.getName()));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@AuthenticationPrincipal User user) {
+        userService.logout(user.getId());
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/forgot-password")
