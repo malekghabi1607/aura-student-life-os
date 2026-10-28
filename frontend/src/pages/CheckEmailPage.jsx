@@ -72,7 +72,7 @@ export default function CheckEmailPage() {
 
         <h1 style={s.title}>Vérifiez votre email</h1>
         <p style={s.sub}>{state?.emailSent === false
-          ? "Votre compte est créé, mais l'envoi de l'e-mail a échoué. Réessayez ci-dessous dans une minute."
+          ? (state.message || "Votre compte est créé, mais l'envoi de l'e-mail a échoué. Réessayez ci-dessous dans une minute.")
           : "Consultez votre boîte e-mail pour le lien d'activation. Si aucun message n'arrive, vous pouvez le renvoyer."}</p>
         <div style={s.emailBox}>
           <span style={s.emailText}>{email}</span>
