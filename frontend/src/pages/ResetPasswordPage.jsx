@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Lock, ArrowRight, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
-import axios from 'axios';
+import { authAPI } from '../services/auth';
+import { authError } from '../utils/authSession';
+import { useAuth } from '../context/AuthContext';
 
 function AuraLogo({ size = 44 }) {
   return (
@@ -31,8 +33,10 @@ function AuraLogo({ size = 44 }) {
 }
 
 export default function ResetPasswordPage() {
+  const { clearAuthentication } = useAuth();
   const [form, setForm] = useState({ password: '', confirm: '' });
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
@@ -47,6 +51,7 @@ export default function ResetPasswordPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError('');
     if (!token) {
       toast.error('Lien invalide. Refaites la demande de réinitialisation.');
       return;
@@ -57,12 +62,12 @@ export default function ResetPasswordPage() {
     }
     setLoading(true);
     try {
-      await axios.post('/api/auth/reset-password', { token, password: form.password });
+      await authAPI.resetPassword({ token, password: form.password });
+      clearAuthentication();
       toast.success('Mot de passe modifié ! Vous pouvez vous connecter.');
-      navigate('/login?reset=true');
+      navigate('/login?reset=true', { replace: true });
     } catch (err) {
-      const msg = err.response?.data?.message || 'Lien invalide ou expiré. Refaites la demande.';
-      toast.error(msg);
+      setError(authError(err, 'Lien invalide ou expiré. Refaites la demande.'));
     } finally {
       setLoading(false);
     }
@@ -100,6 +105,8 @@ export default function ResetPasswordPage() {
         </div>
 
         <h1 style={s.title}>Nouveau mot de passe</h1>
+        {error && <div role="alert" style={{ color: '#fca5a5' }}><p>{error}</p>
+          <Link to="/forgot-password" style={s.backLink}>Demander un nouveau lien</Link></div>}
         <p style={s.sub}>Choisissez un mot de passe sécurisé pour votre compte Aura.</p>
 
         <form onSubmit={handleSubmit} style={s.form}>
