@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Mail, Lock, User, ArrowRight } from 'lucide-react';
 import toast from 'react-hot-toast';
-import axios from 'axios';
+import { authAPI } from '../services/auth';
+import { authError } from '../utils/authSession';
 
 function AuraLogo({ size = 44 }) {
   return (
@@ -60,17 +61,17 @@ export default function RegisterPage() {
     }
     setLoading(true);
     try {
-      await axios.post('/api/auth/register', {
-        name: form.name, email: form.email, password: form.password,
+      const { data } = await authAPI.register({
+        name: form.name.trim(), email: form.email.trim(), password: form.password,
       });
-      navigate('/check-email', { state: { email: form.email } });
+      navigate('/check-email', { state: { email: form.email.trim(), emailSent: data.emailSent, message: data.message } });
     } catch (err) {
       const data = err.response?.data;
       if (data?.errors) {
         const msgs = Object.values(data.errors);
         msgs.forEach(msg => toast.error(msg));
       } else {
-        toast.error(data?.message || 'Erreur lors de la création du compte');
+        toast.error(authError(err, 'Erreur lors de la création du compte'));
       }
     } finally {
       setLoading(false);
