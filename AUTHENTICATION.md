@@ -85,3 +85,46 @@ Les tests React couvrent le rendu et les fonctions/API ; ils ne constituent pas 
 3. Déployer ensuite une version backend/frontend cohérente, renouveler les anciennes confirmations sans échéance, puis effectuer un parcours réel avec une adresse de test autorisée et contrôler la réception.
 
 Aucun push, déploiement, redémarrage de stack réelle, changement de base réelle ou manipulation des volumes existants. Les protections anti-abus restent limitées à la temporisation par compte sur renvoi/reset ; une protection globale de login/inscription à l'entrée réseau reste un chantier distinct.
+
+## Reprise du 28 octobre 2026
+
+### Fichiers restaurés
+
+Six fichiers validés le 27/10 avaient disparu après l'interruption de la session précédente, ce qui cassait le build frontend (`Could not resolve "../services/auth"`). Ils ont été restaurés depuis le journal de session, après comparaison :
+
+- `frontend/src/services/auth.js`, `services/auth.test.js`, `utils/authSession.js`, `utils/authSession.test.js` et `pages/authPages.test.js` : identiques octet pour octet à leur création du 27/10. Ils n'ont pas été modifiés depuis.
+- `scripts/Test-JwtPostgres.ps1` : version commitée, plus le seul changement validé le 27/10 (total Maven sans nombre fixe de tests).
+
+### Compléments
+
+- **Service e-mail non configuré** : c'est le cas si la clé `RESEND_API_KEY` ou `APP_MAIL_FROM` est vide.
+  - Le backend n'appelle plus SMTP et journalise au démarrage la variable manquante, sans jamais afficher de valeur.
+  - Le renvoi de confirmation et le mot de passe oublié répondent `503 {code: EMAIL_SERVICE_UNAVAILABLE}`. Le message est identique pour toutes les adresses, ce qui évite l'énumération des comptes.
+  - L'inscription crée quand même le compte et explique pourquoi l'e-mail n'est pas parti.
+  - Un expéditeur `@resend.dev` déclenche une alerte : Resend ne délivre alors qu'au propriétaire du compte.
+- **Échec SMTP transitoire** : à l'inscription, `emailSent=false` et `code=EMAIL_DELIVERY_FAILED`. Pour le renvoi et le reset, la réponse reste générique, pour la même raison d'énumération ; l'utilisateur peut réessayer après une minute.
+- **Reset et validation** : un reset réussi **n'active pas** un compte non vérifié. La connexion répond alors 403 `EMAIL_NOT_VERIFIED` jusqu'à la confirmation de l'adresse. Cette règle est couverte par un test.
+- **Frontend** : le message du serveur s'affiche pour `EMAIL_SERVICE_UNAVAILABLE`, et la page « Vérifiez votre email » reprend l'explication exacte renvoyée par l'inscription. Les autres erreurs 5xx restent génériques et n'affichent aucun détail fournisseur.
+
+### Résultats du 28/10
+
+| Contrôle | Résultat |
+| --- | --- |
+| Backend, mode CI (H2) | 155 tests : 151 réussis, 4 PostgreSQL ignorés par défaut, 0 échec |
+| Backend avec PostgreSQL 16 temporaire (`Test-JwtPostgres.ps1`, sauvegarde du 27/10 15:33) | 155 réussis, 0 ignoré, 0 échec ; contrôle des logs réussi |
+| Flyway | Base vide : V1, V2 puis V3. Copie restaurée pré-Flyway : baseline V1, puis V2 et V3, avec empreintes de données préservées |
+| Parcours HTTP (`AuthFlowIntegrationTest`, 13 tests, sur PostgreSQL) | Inscription, validation, renvoi, connexion, mot de passe oublié, reset, révocation JWT, déconnexion |
+| E-mail non configuré (`MailNotConfiguredIntegrationTest`, 2 tests) | Compte conservé, 503 identique pour une adresse connue ou inconnue, aucun appel SMTP |
+| Protections JWT P0 (`JwtRevocationTest`, 13 tests ; `JwtPostgresValidationTest`, 4 tests) | Réussies |
+| Frontend | 23 tests réussis ; build Vite réussi |
+| CI | `actionlint` réussi |
+
+### Configuration Resend (à faire par l'exploitant, hors Git)
+
+1. Dans Resend, **vérifier un domaine** (enregistrements DNS SPF/DKIM indiqués par Resend), puis choisir l'expéditeur, par exemple `no-reply@votre-domaine`. Sans domaine vérifié, `onboarding@resend.dev` ne permet d'écrire qu'à l'adresse du compte Resend, ce qui suffit uniquement pour un test personnel.
+2. Créer une **clé API** avec le droit d'envoi (*Sending access*), limitée à ce domaine si possible.
+3. Écrire la clé dans `.secrets/resend_api_key` : une seule ligne, sans guillemets. Ne jamais la mettre dans `.env.docker` ni dans Git.
+4. Renseigner `APP_MAIL_FROM` avec l'expéditeur vérifié dans `.env.docker`. Vérifier aussi `APP_BACKEND_URL` (lien de confirmation) et `APP_FRONTEND_URL` (lien de reset) : ce sont des URL publiques, accessibles depuis la machine qui ouvre l'e-mail. `localhost` ne fonctionne que sur le poste lui-même.
+5. Après redéploiement autorisé, le log de démarrage ne doit plus contenir `E-mail delivery disabled` ni `Resend test domain`. Il faut ensuite faire un parcours réel avec une adresse de test et vérifier la réception dans le tableau de bord Resend (*Emails*, *Logs*).
+
+Les paramètres SMTP (`smtp.resend.com`, port 465, SSL, utilisateur `resend`, clé API comme mot de passe) sont déjà dans `application.yml` et ne doivent pas être modifiés.
