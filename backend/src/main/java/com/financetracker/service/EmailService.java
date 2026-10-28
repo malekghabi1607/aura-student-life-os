@@ -1,5 +1,6 @@
 package com.financetracker.service;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -7,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.web.util.HtmlUtils;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -27,7 +29,32 @@ public class EmailService {
     @Value("${app.mail.from}")
     private String fromAddress;
 
+    // Resend API key used as SMTP password; only its presence is ever checked, never logged.
+    @Value("${spring.mail.password:}")
+    private String smtpPassword;
+
+    /** True when sending cannot work at all (no API key or no sender), whatever the recipient. */
+    public boolean isDeliveryDisabled() {
+        return !StringUtils.hasText(smtpPassword) || !StringUtils.hasText(fromAddress);
+    }
+
+    @PostConstruct
+    void logConfigurationWarnings() {
+        if (!StringUtils.hasText(smtpPassword)) {
+            log.warn("E-mail delivery disabled: RESEND_API_KEY is empty; verification and reset e-mails cannot be sent");
+        }
+        if (!StringUtils.hasText(fromAddress)) {
+            log.warn("E-mail delivery disabled: APP_MAIL_FROM is empty");
+        } else if (fromAddress.trim().toLowerCase().endsWith("@resend.dev")) {
+            log.warn("APP_MAIL_FROM uses the Resend test domain: e-mails are only delivered to the Resend account owner");
+        }
+    }
+
     public boolean sendVerificationEmail(String to, String name, String token) {
+        if (isDeliveryDisabled()) {
+            log.warn("Verification email not sent: e-mail delivery is not configured");
+            return false;
+        }
         try {
             String verifyUrl = mailLink(backendUrl, "/api/auth/verify", token);
             MimeMessage message = mailSender.createMimeMessage();
@@ -46,6 +73,10 @@ public class EmailService {
     }
 
     public boolean sendPasswordResetEmail(String to, String name, String token) {
+        if (isDeliveryDisabled()) {
+            log.warn("Password reset email not sent: e-mail delivery is not configured");
+            return false;
+        }
         try {
             String resetUrl = mailLink(frontendUrl, "/reset-password", token);
             MimeMessage message = mailSender.createMimeMessage();
