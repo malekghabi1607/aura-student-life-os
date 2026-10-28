@@ -6,6 +6,7 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
 import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 
@@ -31,6 +32,9 @@ public class User implements UserDetails {
 
     @Column
     private String verificationToken;
+
+    @Column
+    private Instant verificationTokenExpiry;
 
     @Column
     private String resetToken;
@@ -97,6 +101,8 @@ public class User implements UserDetails {
     public void revokeTokens()                    { tokenVersion++; }
     public String getVerificationToken()          { return verificationToken; }
     public void setVerificationToken(String t)    { this.verificationToken = t; }
+    public Instant getVerificationTokenExpiry()   { return verificationTokenExpiry; }
+    public void setVerificationTokenExpiry(Instant expiry) { this.verificationTokenExpiry = expiry; }
     public String getResetToken()                 { return resetToken; }
     public void setResetToken(String t)           { this.resetToken = t; }
     public LocalDateTime getResetTokenExpiry()    { return resetTokenExpiry; }
