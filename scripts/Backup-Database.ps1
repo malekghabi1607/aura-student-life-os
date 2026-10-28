@@ -35,7 +35,13 @@ function Invoke-DockerFromFile([string[]]$Arguments, [string]$Path) {
     $info.RedirectStandardInput = $true
     $info.RedirectStandardOutput = $true
     $info.RedirectStandardError = $true
-    $process = [System.Diagnostics.Process]::Start($info)
+    # The redirected stdin writer uses the console input encoding; a UTF-8 console with BOM
+    # would prefix EF BB BF to the binary dump. Start the process with a BOM-less encoding.
+    $consoleEncoding = [Console]::InputEncoding
+    try {
+        [Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false
+        $process = [System.Diagnostics.Process]::Start($info)
+    } finally { [Console]::InputEncoding = $consoleEncoding }
     $outputTask = $process.StandardOutput.ReadToEndAsync()
     $errorTask = $process.StandardError.ReadToEndAsync()
     $file = [System.IO.File]::OpenRead($Path)
