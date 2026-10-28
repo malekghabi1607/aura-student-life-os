@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
+import ResendVerification from '../components/ResendVerification';
 
 function AuraLogo({ size = 40 }) {
   return (
@@ -70,7 +71,9 @@ export default function CheckEmailPage() {
         </div>
 
         <h1 style={s.title}>Vérifiez votre email</h1>
-        <p style={s.sub}>Un lien d'activation a été envoyé à</p>
+        <p style={s.sub}>{state?.emailSent === false
+          ? "Votre compte est créé, mais l'envoi de l'e-mail a échoué. Réessayez ci-dessous dans une minute."
+          : "Consultez votre boîte e-mail pour le lien d'activation. Si aucun message n'arrive, vous pouvez le renvoyer."}</p>
         <div style={s.emailBox}>
           <span style={s.emailText}>{email}</span>
         </div>
@@ -99,6 +102,7 @@ export default function CheckEmailPage() {
         </div>
 
         {/* Back button */}
+        <ResendVerification initialEmail={state?.email || ''} />
         <Link to="/login" style={s.backBtn}>
           <ArrowLeft size={15} />
           Retour à la connexion
