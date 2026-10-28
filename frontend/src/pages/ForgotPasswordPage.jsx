@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Mail, ArrowLeft, ArrowRight } from 'lucide-react';
 import toast from 'react-hot-toast';
-import axios from 'axios';
+import { authAPI } from '../services/auth';
+import { authError } from '../utils/authSession';
 
 function AuraLogo({ size = 44 }) {
   return (
@@ -39,10 +40,10 @@ export default function ForgotPasswordPage() {
     e.preventDefault();
     setLoading(true);
     try {
-      await axios.post('/api/auth/forgot-password', { email });
+      await authAPI.forgotPassword(email.trim());
       setSent(true);
-    } catch {
-      toast.error('Une erreur est survenue. Réessayez.');
+    } catch (error) {
+      toast.error(authError(error));
     } finally {
       setLoading(false);
     }
@@ -80,15 +81,17 @@ export default function ForgotPasswordPage() {
                 <polyline points="35,14 37.5,16.5 41,12" stroke="white" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </div>
-            <h2 style={s.title}>Email envoyé !</h2>
+            <h2 style={s.title}>Demande enregistrée</h2>
             <p style={s.sub}>
               Si un compte existe pour <strong style={{ color: '#c084fc' }}>{email}</strong>, vous recevrez un lien de réinitialisation dans quelques minutes.
             </p>
             <div style={s.infoBox}>
               <span style={{ fontSize: '0.8rem', color: '#94a3b8', lineHeight: 1.6 }}>
-                Vérifiez aussi vos spams. Le lien expire dans <strong style={{ color: '#a855f7' }}>1 heure</strong>.
+              Vérifiez aussi vos spams. Le lien expire dans <strong style={{ color: '#a855f7' }}>1 heure</strong>.
+              Si aucun message n'arrive, réessayez dans une minute ou contactez l'assistance.
               </span>
             </div>
+            <button type="button" onClick={() => setSent(false)} style={s.backLink}>Faire une nouvelle demande</button>
             <Link to="/login" style={s.backLink}>
               <ArrowLeft size={14} /> Retour à la connexion
             </Link>
