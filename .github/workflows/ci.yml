@@ -78,7 +78,7 @@ jobs:
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund
       - name: Frontend tests
-        run: node --test src/components/SafeMessageContent.test.js src/utils/aiMessages.test.js
+        run: npm test
       - name: Build static frontend
         run: npm run build
       - name: Pass validated frontend to Docker job
