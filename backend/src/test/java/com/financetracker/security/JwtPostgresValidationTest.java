@@ -199,7 +199,7 @@ class JwtPostgresValidationTest {
         Map<String, String> result = new LinkedHashMap<>();
         for (String table : TABLES) {
             try (var statement = connection.createStatement(); var rows = statement.executeQuery(
-                    "SELECT count(*), md5(COALESCE(string_agg((to_jsonb(t)-'token_version')::text, E'\\n' ORDER BY id),'')) FROM public."
+                    "SELECT count(*), md5(COALESCE(string_agg((to_jsonb(t)-'token_version'-'verification_token_expiry')::text, E'\\n' ORDER BY id),'')) FROM public."
                             + table + " t")) {
                 rows.next();
                 result.put(table, rows.getLong(1) + ":" + rows.getString(2));
@@ -221,7 +221,7 @@ class JwtPostgresValidationTest {
             Flyway migration = Flyway.configure().dataSource(url, "aura_jwt_validation", password)
                     .locations("classpath:db/migration").baselineOnMigrate(true).baselineVersion("1").cleanDisabled(true).load();
             var migrated = migration.migrate();
-            assertThat(migrated.migrationsExecuted).isEqualTo(1);
+            assertThat(migrated.migrationsExecuted).isEqualTo(2);
             assertThat(fingerprints(connection)).as("All seven tables and their identity sequences must remain unchanged")
                     .isEqualTo(before);
             try (var statement = connection.createStatement();
@@ -229,7 +229,7 @@ class JwtPostgresValidationTest {
                 result.next(); assertThat(result.getLong(1)).isZero();
             }
             assertThat(migration.validateWithResult().validationSuccessful).isTrue();
-            System.out.println("JWT_PG restored-copy: V2 migrated, 7 table fingerprints and identity sequences preserved");
+            System.out.println("JWT_PG restored-copy: V2/V3 migrated, 7 table fingerprints and identity sequences preserved");
         }
     }
 }
