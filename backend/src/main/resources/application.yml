@@ -26,6 +26,11 @@ spring:
     properties:
       mail.smtp.auth: true
       mail.smtp.ssl.enable: true
+      mail.smtp.ssl.checkserveridentity: true
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
+      mail.debug: false
   datasource:
     hikari:
       maximum-pool-size: ${HIKARI_MAX_POOL:10}
@@ -74,3 +79,8 @@ logging:
     "[com.financetracker]": INFO
     "[org.hibernate.SQL]": "OFF"
     "[org.hibernate.orm.jdbc.bind]": "OFF"
+    # Auth DTOs and response bodies contain passwords/JWTs; never trace HTTP payloads.
+    "[org.springframework.web]": WARN
+    "[org.springframework.security]": WARN
+    "[org.springframework.mail]": WARN
+    "[org.eclipse.angus.mail]": WARN
