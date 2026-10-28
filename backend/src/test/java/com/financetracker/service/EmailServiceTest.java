@@ -26,6 +26,7 @@ class EmailServiceTest {
         ReflectionTestUtils.setField(service, "backendUrl", "https://aura.example.invalid/");
         ReflectionTestUtils.setField(service, "frontendUrl", "https://aura.example.invalid/");
         ReflectionTestUtils.setField(service, "fromAddress", "no-reply@example.invalid");
+        ReflectionTestUtils.setField(service, "smtpPassword", "SYNTHETIC-not-a-resend-key");
         when(smtp.createMimeMessage()).thenAnswer(call -> new MimeMessage((Session) null));
     }
     @Test void verificationMailContainsPublicLinkEscapesNameAndDoesNotLogToken(CapturedOutput output) throws Exception {
@@ -54,5 +55,23 @@ class EmailServiceTest {
         assertThat(service.sendVerificationEmail("user@example.invalid", "User", sensitive)).isFalse();
         assertThat(service.sendPasswordResetEmail("user@example.invalid", "User", sensitive)).isFalse();
         assertThat(output.getAll()).doesNotContain(sensitive, "user@example.invalid");
+    }
+    @Test void missingApiKeyDisablesDeliveryWithoutContactingSmtp(CapturedOutput output) {
+        ReflectionTestUtils.setField(service, "smtpPassword", "");
+        assertThat(service.isDeliveryDisabled()).isTrue();
+        assertThat(service.sendVerificationEmail("user@example.invalid", "User", "synthetic-token")).isFalse();
+        assertThat(service.sendPasswordResetEmail("user@example.invalid", "User", "synthetic-token")).isFalse();
+        verify(smtp, never()).send(any(MimeMessage.class));
+        assertThat(output.getAll()).contains("not configured").doesNotContain("synthetic-token", "user@example.invalid");
+    }
+    @Test void configurationWarningsNameTheProblemButNeverTheKey(CapturedOutput output) {
+        service.logConfigurationWarnings();
+        assertThat(output.getAll()).doesNotContain("E-mail delivery disabled", "Resend test domain");
+        ReflectionTestUtils.setField(service, "fromAddress", "onboarding@resend.dev");
+        service.logConfigurationWarnings();
+        assertThat(output.getAll()).contains("Resend test domain");
+        ReflectionTestUtils.setField(service, "smtpPassword", " ");
+        service.logConfigurationWarnings();
+        assertThat(output.getAll()).contains("RESEND_API_KEY is empty").doesNotContain("SYNTHETIC-not-a-resend-key");
     }
 }
