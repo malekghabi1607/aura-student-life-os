@@ -7,6 +7,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
+import org.springframework.web.util.HtmlUtils;
+import org.springframework.web.util.UriComponentsBuilder;
 
 @Service
 @RequiredArgsConstructor
@@ -25,36 +27,45 @@ public class EmailService {
     @Value("${app.mail.from}")
     private String fromAddress;
 
-    public void sendVerificationEmail(String to, String name, String token) {
-        String verifyUrl = backendUrl + "/api/auth/verify?token=" + token;
+    public boolean sendVerificationEmail(String to, String name, String token) {
         try {
+            String verifyUrl = mailLink(backendUrl, "/api/auth/verify", token);
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
             helper.setFrom(fromAddress);
             helper.setTo(to);
             helper.setSubject("Activez votre compte Aura");
-            helper.setText(buildVerificationHtml(name, verifyUrl), true);
+            helper.setText(buildVerificationHtml(HtmlUtils.htmlEscape(name), verifyUrl), true);
             mailSender.send(message);
-            log.info("Verification email sent to {}", to);
+            log.info("Verification email accepted by SMTP provider");
+            return true;
         } catch (Exception e) {
             log.warn("Verification email could not be sent; check mail configuration");
+            return false;
         }
     }
 
-    public void sendPasswordResetEmail(String to, String name, String token) {
-        String resetUrl = frontendUrl + "/reset-password?token=" + token;
+    public boolean sendPasswordResetEmail(String to, String name, String token) {
         try {
+            String resetUrl = mailLink(frontendUrl, "/reset-password", token);
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
             helper.setFrom(fromAddress);
             helper.setTo(to);
             helper.setSubject("Réinitialisation de votre mot de passe Aura");
-            helper.setText(buildResetHtml(name, resetUrl), true);
+            helper.setText(buildResetHtml(HtmlUtils.htmlEscape(name), resetUrl), true);
             mailSender.send(message);
-            log.info("Password reset email sent to {}", to);
+            log.info("Password reset email accepted by SMTP provider");
+            return true;
         } catch (Exception e) {
             log.warn("Password reset email could not be sent; check mail configuration");
+            return false;
         }
+    }
+
+    private String mailLink(String base, String path, String token) {
+        return UriComponentsBuilder.fromUriString(base.replaceAll("/+$", ""))
+                .path(path).queryParam("token", token).build().encode().toUriString();
     }
 
     private String buildVerificationHtml(String name, String verifyUrl) {
