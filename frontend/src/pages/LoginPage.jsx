@@ -3,7 +3,9 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Mail, Lock, ArrowRight, CheckCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
-import axios from 'axios';
+import { authAPI } from '../services/auth';
+import { authError } from '../utils/authSession';
+import ResendVerification from '../components/ResendVerification';
 
 function AuraLogo({ size = 44 }) {
   return (
@@ -46,6 +48,8 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [needsVerification, setNeedsVerification] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -55,15 +59,18 @@ export default function LoginPage() {
       toast.success('Email vérifié ! Vous pouvez vous connecter.');
     if (searchParams.get('error') === 'invalid-token')
       toast.error('Lien de vérification invalide ou expiré.');
+    if (searchParams.get('error') === 'expired-token')
+      toast.error('Ce lien de confirmation a expiré. Demandez un nouveau lien ci-dessous.');
     if (searchParams.get('reset') === 'true')
       toast.success('Mot de passe modifié avec succès !');
   }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError(''); setNeedsVerification(false);
     setLoading(true);
     try {
-      const { data } = await axios.post('/api/auth/login', { email, password });
+      const { data } = await authAPI.login({ email: email.trim(), password });
       if (!data.token) {
         toast.error(data.name || 'Email ou mot de passe incorrect');
         return;
@@ -72,10 +79,8 @@ export default function LoginPage() {
       toast.success(`Bienvenue, ${data.name} !`);
       navigate('/dashboard');
     } catch (err) {
-      if (err.response?.status === 403)
-        toast.error('Vérifiez votre email avant de vous connecter.');
-      else
-        toast.error('Email ou mot de passe incorrect');
+      setNeedsVerification(err.response?.data?.code === 'EMAIL_NOT_VERIFIED');
+      setError(authError(err));
     } finally {
       setLoading(false);
     }
@@ -135,6 +140,10 @@ export default function LoginPage() {
 
           <h1 style={s.formTitle}>Connexion</h1>
           <p style={s.formSub}>Accédez à votre espace Aura</p>
+          {error && <p role="alert" style={{ color: '#fca5a5' }}>{error}</p>}
+          {searchParams.get('error') && <p role="alert" style={{ color: '#fca5a5' }}>
+            {searchParams.get('error') === 'expired-token' ? 'Le lien de confirmation a expiré.' : 'Le lien de confirmation est invalide ou a déjà été utilisé.'}
+          </p>}
 
           <form onSubmit={handleSubmit} style={s.form}>
             <div style={s.field}>
@@ -178,18 +187,19 @@ export default function LoginPage() {
               {loading ? 'Connexion...' : <><span>Se connecter</span><ArrowRight size={16} /></>}
             </button>
           </form>
+          {(needsVerification || searchParams.get('error')) && <ResendVerification initialEmail={email} />}
 
           <div style={s.orRow}>
             <div style={s.orLine} /><span style={s.orText}>ou</span><div style={s.orLine} />
           </div>
 
-          <button
+          {import.meta.env.DEV && <button
             style={s.demoBtn}
             onClick={() => { setEmail('demo@finance.app'); setPassword('demo123'); }}
           >
             <CheckCircle size={14} style={{ color: '#10b981' }} />
             Essayer avec le compte démo
-          </button>
+          </button>}
 
           <p style={s.footer}>
             Pas encore de compte ?{' '}
