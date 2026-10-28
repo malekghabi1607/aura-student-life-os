@@ -33,6 +33,11 @@ test('network and server errors are distinguished from invalid credentials', () 
   assert.match(authError({ response: { status: 503, data: { message: 'private-provider-detail' } } }), /temporairement/);
   assert.equal(authError({ response: { status: 401 } }), 'Email ou mot de passe incorrect.');
 });
+test('an unconfigured e-mail service is explained instead of a generic outage', () => {
+  const message = "L'envoi d'e-mails n'est pas configuré sur ce serveur.";
+  assert.equal(authError({ response: { status: 503, data: { code: 'EMAIL_SERVICE_UNAVAILABLE', message } } }), message);
+  assert.match(authError({ response: { status: 503, data: { code: 'OTHER', message: 'private-provider-detail' } } }), /temporairement/);
+});
 test('verification, disabled accounts and validation errors have useful messages', () => {
   assert.match(authError({ response: { status: 403, data: { code: 'EMAIL_NOT_VERIFIED' } } }), /renvoyer/);
   assert.equal(authError({ response: { status: 403, data: { code: 'ACCOUNT_DISABLED', message: 'Compte désactivé.' } } }), 'Compte désactivé.');
