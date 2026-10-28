@@ -81,7 +81,7 @@ try {
         }
     }
     if ($mavenExit -ne 0) { throw "Maven validation failed (exit $mavenExit); inspect the ignored log privately." }
-    Select-String -LiteralPath $log -Pattern '^JWT_PG |Tests run: 135,|BUILD SUCCESS' | ForEach-Object Line
+    Select-String -LiteralPath $log -Pattern '^JWT_PG |^\[INFO\] Tests run: [0-9]+, Failures:|BUILD SUCCESS' | ForEach-Object Line
     Write-Output 'PASS: Maven, JWT sequence, Flyway empty/copy, data fingerprints and log checks.'
 } finally {
     [Environment]::SetEnvironmentVariable('AURA_JWT_TEST_DB_PASSWORD', $oldPassword, 'Process')
