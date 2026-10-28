@@ -55,8 +55,8 @@ class ContainerSchemaTest {
     @Test
     void newDatabaseIsCreatedByMigrationsWithoutBaseline() {
         var applied = flyway.info().applied();
-        assertThat(applied).hasSize(2);
-        assertThat(applied).extracting(m -> m.getVersion().getVersion()).containsExactly("1", "2");
+        assertThat(applied).hasSize(3);
+        assertThat(applied).extracting(m -> m.getVersion().getVersion()).containsExactly("1", "2", "3");
         assertThat(applied).allMatch(m -> m.getState() == MigrationState.SUCCESS);
         assertThat(flyway.info().pending()).isEmpty();
         assertThat(flyway.getConfiguration().isBaselineOnMigrate()).isFalse();
